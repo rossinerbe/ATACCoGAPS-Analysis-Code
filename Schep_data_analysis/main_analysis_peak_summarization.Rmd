@@ -1,0 +1,440 @@
+---
+title: "schep_main_pipeline"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+Read in scATAC-seq data from GSE99172, Schep et al, 2017
+```{r}
+schepATAC <- read.csv(gzfile("data/GSE99172_scatac_counts.csv.gz"))
+
+schepATAC[1:5, 1:5] #the first three columns contain peaks, the colnames are GSM numbers, and row one has cell names
+
+#converting to numeric count matrix
+countMatrix <- apply(as.matrix(schepATAC[-1, -c(1:3)]), 2, as.numeric)
+
+#getting cell names
+cellNames <- as.character(schepATAC[1, -c(1:3)])
+
+#create vector of cell types
+cellTypes <- unlist(lapply(cellNames, function(x){
+  y <- stringr::str_split(x, "-")
+  celltype = y[[1]][2]
+  return(celltype)
+}))
+
+#getting peaks
+peaks <- schepATAC[-1, c(1:3)]
+
+#create GRanges from peaks
+peakGranges <- GenomicRanges::makeGRangesFromDataFrame(peaks)
+
+#create vector of peaks to use as labels
+peakvec <- unlist(apply(peaks, 1, function(x){
+  stringr::str_c(x[1], x[2], x[3], sep = "-")
+}))
+
+#naming cells and peaks
+colnames(countMatrix) = cellTypes
+rownames(countMatrix) = peakvec
+
+countMatrix[1:5, 1:5]
+
+#saving data
+saveRDS(countMatrix, "data/SchepCountMatrix.rds")
+saveRDS(peakGranges, "data/SchepPeakGranges.rds")
+saveRDS(cellTypes, "data/SchepCellTypes.rds")
+saveRDS(peakvec, "data/SchepPeaks.rds")
+```
+
+
+We now filter by sparsity to examine the results from different amount of filtering.
+```{r}
+#perform filtering
+filtered99 <- ATACCoGAPS::dataSubsetBySparsity(countMatrix, cellTypes, peakvec, cell_cut = 0.99, peak_cut = 0.99)
+
+countMatrix99 <- filtered99$subset_data
+
+
+filtered98 <- ATACCoGAPS::dataSubsetBySparsity(countMatrix, cellTypes, peakvec, cell_cut = 0.98, peak_cut = 0.98)
+
+countMatrix98 <- filtered98$subset_data
+
+#save data
+saveRDS(countMatrix99, "data/SchepCountMatrix99Filtered.rds")
+saveRDS(countMatrix98, "data/SchepCountMatrix98Filtered.rds")
+```
+
+
+Before running CoGAPS we create a parameters object. The number of patterns is set to 7 for all sets, running for 10000 iterations. The random seed ensures reproducibility of the factorization. We use singleCell and sparseoptimiztion mathods because we are using sparse single-cell data. We set the distributed parameter to genome-wide because their are more genomic features than cells. We run across one core per 10k peaks. 
+```{r}
+#parameters for full data set
+params <- CogapsParams(nPatterns=7, nIterations=10000, seed=42, singleCell=TRUE, sparseOptimization=TRUE, distributed="genome-wide", geneNames=peakvec, sampleNames=cellTypes)
+params <- setDistributedParams(params, nSets=12)
+saveRDS(params, "data/7pat_10kIt_12sets_gw_params.rds")
+
+#parameters for 99% sparsity filtered
+params99 <- CogapsParams(nPatterns=7, nIterations=10000, seed=42, singleCell=TRUE, sparseOptimization=TRUE, distributed="genome-wide", geneNames=rownames(countMatrix99), sampleNames=colnames(countMatrix99))
+params99 <- setDistributedParams(params99, nSets=9)
+saveRDS(params99, "data/7pat_10kIt_9sets_gw_99sub_params.rds")
+
+#parameters for 98% sparsity filtered
+params98 <- CogapsParams(nPatterns=7, nIterations=10000, seed=42, singleCell=TRUE, sparseOptimization=TRUE, distributed="genome-wide", geneNames=rownames(countMatrix98), sampleNames=colnames(countMatrix98))
+params98 <- setDistributedParams(params98, nSets=6)
+saveRDS(params98, "data/7pat_10kIt_6sets_gw_98sub_params.rds")
+```
+
+We do not call CoGAPS locally and run the algorithm on AWS Batch servers, but to demonstrate:
+```{r, eval = FALSE}
+cogapsResult <- GWCoGAPS(data = countMatrix, params = params, nThreads = 12)
+
+cogapsResult99 <- GWCoGAPS(data = countMatrix99, params = params99, nThreads = 9)
+
+cogapsResult98 <- GWCoGAPS(data = countMatrix98, params = params98, nThreads = 6)
+```
+
+
+Read in results downloaded from AWS server run
+```{r}
+cgFullMatrix = readRDS("data/countMatrix_result.rds")
+cg99Matrix = readRDS("data/countMatrix99_result.rds")
+cg98Matrix = readRDS("data/countMatrix98_result.rds")
+```
+
+Plot the pattern matrix 
+```{r}
+col <- c("salmon", 'aquamarine', 'aquamarine3', "aquamarine4", "darkorchid1", 'limegreen', "magenta", "orangered", "darkgreen", "darkred", "red3", "darkorange")
+rowColors <- c("magenta", "darkorange", "aquamarine3", "salmon", "darkorchid1", "grey", "darkgreen")
+
+cellTypes <- plyr::mapvalues(as.factor(cellTypes), from = c("BJ","GM","GM12878","GM12878rep2","H1ESC","HL60","K562","LMPP","PB1022"   ,"SU070","SU353","TF1"), to = c("Fibroblasts", "GMLCL 1","GMLCL 2 Rep1","GMLCL 2 Rep2","H1ESCs","HL60 Leukemia","K562 Erythroleukemia","LMPP","Monocyte","AML Patient 070","AML Patient 353","TF1 Erythroblast"))
+
+cellTypes99 <- colnames(countMatrix99)
+cellTypes99 <- plyr::mapvalues(as.factor(cellTypes99), from = c("BJ","GM","GM12878","GM12878rep2","H1ESC","HL60","K562","LMPP","PB1022"   ,"SU070","SU353","TF1"), to = c("Fibroblasts", "GMLCL 1","GMLCL 2 Rep1","GMLCL 2 Rep2","H1ESCs","HL60 Leukemia","K562 Erythroleukemia","LMPP","Monocyte","AML Patient 070","AML Patient 353","TF1 Erythroblast"))
+
+ATACCoGAPS::cgapsPlot(cgFullMatrix, as.factor(cellTypes), cols= col, ylab = "Pattern Weight")
+
+ATACCoGAPS::heatmapPatternMatrix(cgFullMatrix, as.factor(cellTypes), cellCols = col, col = viridis::magma(n = 9))
+
+ATACCoGAPS::cgapsPlot(cg99Matrix, cellTypes99, cols= col, ylab = "Pattern Weight")
+
+ATACCoGAPS::heatmapPatternMatrix(cg99Matrix, cellTypes99, cellCols = col, rowColors = rowColors, col = viridis::magma(n=9))
+
+ATACCoGAPS::cgapsPlot(cg98Matrix, as.factor(colnames(countMatrix98)), cols= col, ylab = "Pattern Weight")
+
+ATACCoGAPS::heatmapPatternMatrix(cg98Matrix, as.factor(colnames(countMatrix98)), cellCols = col, col = viridis::magma(n = 9))
+```
+Filtering more than 99% sparse signal seems to remove cells that don't differentiate simply due to low read number. Filtering higher than that seems likely to just be losing useful signal.
+
+
+We will continue with the 99% filtered data. 
+
+To investigate differential accessibility we find the patternMarker peaks which differentiate each pattern. We can visualize these peaks in the original data.
+```{r}
+ATACCoGAPS::heatmapPatternMarkers(cgaps_result = cg99Matrix, atac_data = countMatrix99, celltypes = as.factor(colnames(countMatrix99)), numregions = 50, colColors = col, rowColors = c("magenta", "darkorange", "aquamarine3", "salmon", "darkorchid1", "limegreen", "darkgreen"), col = viridis::plasma(n = 2))
+
+
+#make GRanges for subset peaks
+subsetGranges <- ATACCoGAPS::peaksToGRanges(rownames(countMatrix99), sep= "-")
+
+#get genes matched to patternMarker peaks
+library(Homo.sapiens)
+matchedGenes <- ATACCoGAPS::genePatternMatch(cogapsResult = cg99Matrix, generanges = subsetGranges, genome = Homo.sapiens, scoreThreshold = 0.03)
+
+#download pathways from msigDB
+library(dplyr)
+dPathways <- msigdbr::msigdbr(species = "Homo sapiens", category ="H") %>% dplyr::select(gs_name, gene_symbol) %>% as.data.frame()
+#save current pathway set for reproducibility
+saveRDS(dPathways, "data/msigdbrHallmarkPathways10_2019.rds")
+
+#determine gene overlap between pathways and mathced genes
+matchedPathways = ATACCoGAPS::pathwayMatch(matchedGenes, dPathways, p_threshold = 0.001)
+
+matchedPathways
+```
+
+EMT in Fibroblasts and Hallmark inflammatory response in monocytes are the most well supported by known biology.
+
+
+Find potential TF bindings
+```{r}
+motifTFResults <- ATACCoGAPS::simpleMotifTFMatch(cogapsResult = cg99Matrix, generanges = subsetGranges, organism = "Homo sapiens", genome = "hg19", scoreThreshold = 0.03)
+
+motifTFResults$tfMatchSummary
+
+#summary for most enriched TF binding in pattern7 (monocyte)
+motifTFResults$tfDescriptions[[7]][which(motifTFResults$tfDescriptions[[7]][,2]=="IRF1"), 1]
+
+
+#check accessibility of predicted TFs for fibroblasts
+fbTFAcc <- ATACCoGAPS::geneAccessibility(geneList = c("FOXP1", "JUN", "IRF1", "FOS"), peakGranges = subsetGranges, atacData = countMatrix99, genome = Homo.sapiens)
+
+
+mean(apply(countMatrix99, 2, sum)) #about 6600 reads/cell
+binaryMatrix <- (countMatrix99 > 0) + 0
+averageAcc <- mean(apply(binaryMatrix, 1, sum))/ncol(countMatrix99) #about 5-6% of cells are accessible for a given peak
+
+#find the amount of times cells are accessible in peaks overlapping with genes of interest. To produce rough estimate of accessibility to compare to the peak average for that cell type
+
+
+foldAccessibility(fbTFAcc$FOS, cellTypes99, "Fibroblasts", binaryMatrix)
+foldAccessibility(fbTFAcc$FOXP1, cellTypes99, "Fibroblasts", binaryMatrix)
+foldAccessibility(fbTFAcc$IRF1, cellTypes99, "Fibroblasts", binaryMatrix)
+foldAccessibility(fbTFAcc$JUN, cellTypes99, "Fibroblasts", binaryMatrix)
+
+#plot accessibility
+ATACCoGAPS::heatmapGeneAccessibility(genePeaks = fbTFAcc$FOS, celltypes = cellTypes99, colColors = col, col = c("white", "darkgreen"))
+ATACCoGAPS::heatmapGeneAccessibility(genePeaks = fbTFAcc$FOXP1, celltypes = cellTypes99, colColors = col, col = c("white", "darkgreen"))
+ATACCoGAPS::heatmapGeneAccessibility(genePeaks = fbTFAcc$IRF1, celltypes = cellTypes99, colColors = col, col = c("white", "darkgreen"))
+ATACCoGAPS::heatmapGeneAccessibility(genePeaks = fbTFAcc$JUN, celltypes = cellTypes99, colColors = col, col = c("white", "darkgreen"))
+
+#check accessibility of predicted TFs for monocytes
+mnTFAcc <- ATACCoGAPS::geneAccessibility(geneList = c("IRF1", "CEBPA", "SPI1", "STAT1"), peakGranges = subsetGranges, atacData = countMatrix99, genome = Homo.sapiens)
+#plot accessibility
+ATACCoGAPS::heatmapGeneAccessibility(genePeaks = mnTFAcc$SPI1, celltypes = cellTypes99, colColors = col, col = c("white", "darkgreen"))
+ATACCoGAPS::heatmapGeneAccessibility(genePeaks = mnTFAcc$STAT1, celltypes = cellTypes99, colColors = col, col = c("white", "darkgreen"))
+ATACCoGAPS::heatmapGeneAccessibility(genePeaks = mnTFAcc$CEBPA, celltypes = cellTypes99, colColors = col, col = c("white", "darkgreen"))
+ATACCoGAPS::heatmapGeneAccessibility(genePeaks = mnTFAcc$IRF1, celltypes = cellTypes99, colColors = col, col = c("white", "darkgreen"))
+
+foldAccessibility(mnTFAcc$IRF1, cellTypes99, "Monocyte", binaryMatrix)
+foldAccessibility(mnTFAcc$SPI1, cellTypes99, "Monocyte", binaryMatrix)
+foldAccessibility(mnTFAcc$STAT1, cellTypes99, "Monocyte", binaryMatrix)
+foldAccessibility(mnTFAcc$CEBPA, cellTypes99, "Monocyte", binaryMatrix)
+
+
+#accessibility of predicted TFs k562
+kTFAcc <- ATACCoGAPS::geneAccessibility(geneList = c("TAL1", "SP2"), peakGranges = subsetGranges, atacData = countMatrix99, genome = Homo.sapiens)
+heatmapGeneAccessibility(genePeaks = kTFAcc$TAL1, celltypes = cellTypes99, colColors = col, col = c("white", "darkgreen"))
+heatmapGeneAccessibility(genePeaks = kTFAcc$SP2, celltypes = cellTypes99, colColors = col, col = c("white", "darkgreen"))
+
+rownames(kTFAcc$TAL1)
+
+foldAccessibility(kTFAcc$TAL1, cellTypes99, "K562 Erythroleukemia", binaryMatrix)
+foldAccessibility(kTFAcc$SP2, cellTypes99, "K562 Erythroleukemia", binaryMatrix)
+
+```
+
+
+Classifying cells using the pattern matrix and comparing to ground truth
+```{r}
+summary(as.factor(colnames(countMatrix99)))
+
+pm <- CoGAPS::patternMarkers(cg99Matrix, axis = 2)
+patMarkers <- pm$PatternMarkers
+
+lapply(patMarkers, length)
+
+patRanks <- pm$PatternMarkerRanks
+
+predictCellPopulation <- function(cgapsResult) {
+  PM <- CoGAPS::patternMarkers(cgapsResult, axis = 2)
+  patMarkers <- PM$PatternMarkers
+  lengths <- lapply(patMarkers, length)
+  patRanks <- PM$PatternMarkerRanks
+  
+  predictionMatrix <- matrix(NA, nrow(patRanks), ncol(patRanks)) 
+  for(i in seq(ncol(patRanks))){
+    prediction <- rep(0, nrow(patRanks))
+    preds <- which(patRanks[,i] %in% seq(lengths[[i]]))
+    prediction[preds] <- 1
+    predictionMatrix[,i] <- prediction
+  }
+  
+  return(predictionMatrix)
+}
+
+predictionToClasses <- function(predictionMatrix) {
+  classList <- apply(predictionMatrix, 2, function(x){
+    cellselect <- which(x == 1)
+  })
+  cellClassifier <- vector("numeric", nrow(predictionMatrix))
+  for(i in seq(ncol(predictionMatrix))){
+    cellClassifier[classList[[i]]] <- i
+  }
+  return(cellClassifier)
+}
+
+pMatrix <- predictCellPopulation(cg99Matrix)
+cellClass <- predictionToClasses(pMatrix)
+
+cellTypes <- colnames(countMatrix99)
+
+Kclass <- rep(0, length(cellTypes))
+Kclass[which(cellTypes == "K562")] <- 1
+Kroc <- pROC::roc(Kclass, pMatrix[,1])
+pROC::auc(Kroc)
+
+TFclass <- rep(0, length(cellTypes))
+TFclass[which(cellTypes == "TF1")] <- 1
+TFroc <- pROC::roc(TFclass, pMatrix[,2])
+pROC::auc(TFroc)
+
+GMclass <- rep(0, length(cellTypes))
+GMclass[c(which(cellTypes=="GM"), which(cellTypes=="GM12878"),
+                             which(cellTypes=="GM12878rep2"))] <- 1
+
+GMroc <- pROC::roc(GMclass, pMatrix[,3])
+pROC::auc(GMroc)
+
+
+BJclass <- rep(0, length(cellTypes))
+BJclass[which(cellTypes == "BJ")] <- 1
+BJroc <- pROC::roc(BJclass, pMatrix[,4])
+pROC::auc(BJroc)
+
+H1class <- rep(0, length(cellTypes))
+H1class[which(cellTypes == "H1ESC")] <- 1
+H1roc <- pROC::roc(H1class, pMatrix[,5])
+pROC::auc(H1roc)
+
+HLclass <- rep(0, length(cellTypes))
+HLclass[which(cellTypes == "HL60")] <- 1
+HLroc <- pROC::roc(HLclass, pMatrix[,6])
+pROC::auc(HLroc)
+
+PBclass <- rep(0, length(cellTypes))
+PBclass[which(cellTypes == "PB1022")] <- 1
+PBroc <- pROC::roc(PBclass, pMatrix[,7])
+pROC::auc(PBroc)
+
+rocList <- list(Kroc, TFroc, GMroc, BJroc, H1roc, HLroc, PBroc)
+
+
+aucVals <- unlist(lapply(rocList, pROC::auc))
+CellFct <- as.factor(seq(length(aucVals)))
+CellFct <- plyr::mapvalues(CellFct, from = as.character(CellFct), to = c("K562 Erythroleukemia", "TF1 Erythroblast", "GM LCLS", "Fibroblasts", "H1ESCs", "HL60 Leukemia", "Monocyte"))
+
+plotData <- data.frame(AUC = aucVals, Pattern = seq(length(aucVals)), AnnotatedCellType = CellFct)
+
+library(ggplot2)
+ggplot(plotData, aes(x = Pattern, y = AUC)) +
+  geom_point(aes(col = AnnotatedCellType), size = 4) +
+  scale_colour_manual(values = c("magenta", "darkorange", "aquamarine3", "salmon",      "darkorchid1", "grey", "darkgreen")) +
+  ylim(c(0,1)) +
+  scale_x_continuous(breaks = seq(1, 7, 1))
+
+col2 <- c("red", "magenta", "darkorange", "aquamarine3", "salmon",      "darkorchid1", "grey", "darkgreen")
+
+cellClass <- plyr::mapvalues(as.factor(cellClass), from = c("0", "1", "2", "3", "4", "5", "6", "7"), to = c("Unclassified", "Pattern1", "Pattern2", "Pattern3", "Pattern4", "Pattern5", "Pattern6", "Pattern7"))
+
+ATACCoGAPS::cgapsPlot(cg99Matrix, cellClass, col2)
+
+
+ATACCoGAPS::heatmapPatternMatrix(cg99Matrix, as.factor(cellClass), cellCols = col2, rowColors = rowColors, col = viridis::magma(n=9))
+```
+
+
+projectR for projection of patterns of accessibility into other data sets (hematopoietic cells from Buenrostro et al, 2018, GSE96769)
+```{r}
+#getting count matrix - peaks x cells
+repmis::source_data("https://github.com/FertigLab/ATACCoGAPS/blob/master/BuenrostroFinalSubsetData.Rdata?raw=true")
+#getting GRanges for peaks
+repmis::source_data("https://github.com/FertigLab/ATACCoGAPS/blob/master/BuenrostroGRanges.Rdata?raw=true")
+#getting celltypes
+repmis::source_data("https://github.com/FertigLab/ATACCoGAPS/blob/master/BuenrostroCellTypes.Rdata?raw=true")
+
+#run projectR
+projectRResults <- ATACCoGAPS::ATACTransferLearning(newData = BuenrostroFinalSubsetData, CoGAPSResult = cg99Matrix, originalPeaks = rownames(countMatrix99), originalGranges = subsetGranges,newGranges = BuenrostroGRanges)
+
+
+#plot the output patterns
+set.seed(22)
+BuenColors <- gtools::permute(rainbow(10))
+BuenColors[7] <- "darkgreen"
+
+ATACCoGAPS::cgapsPlot(t(projectRResults$projection), as.factor(BuenrostroCellTypes), matrix = TRUE, col = BuenColors, ylab = "Pattern Weight")
+
+#testing monocyte significance in Buenrostro data for monocyte pattern from Schep data
+pairwise.wilcox.test(projectRResults$projection[7,], BuenrostroCellTypes, p.adjust.method = "BH")
+
+pRPvals <- projectRResults$pval
+
+#monocytes are very significant in projectR transfer, and there is generally increased significance for an immune cell type
+mean(pRPvals[7,])
+mean(pRPvals[7, which(BuenrostroCellTypes == "mono")])
+
+#as compared to the fibroblast pattern
+mean(pRPvals[4,])
+
+#B cell derived LCL pattern 
+pairwise.wilcox.test(projectRResults$projection[3,], BuenrostroCellTypes, p.adjust.method = "BH")
+mean(pRPvals[3, which(BuenrostroCellTypes == "CLP")])
+mean(pRPvals[3, which(BuenrostroCellTypes == "pDC")])
+
+
+#Erythroleukia pattern
+pairwise.wilcox.test(projectRResults$projection[1,], BuenrostroCellTypes, p.adjust.method = "BH")
+mean(pRPvals[1, which(BuenrostroCellTypes == "MEP")])
+```
+
+
+Motif Summarization
+```{r}
+#motif list of PWM files downloaded from cisBP
+motifList <- readRDS("data/motiflist")
+
+#match to motifs
+motifsSchep <- ATACCoGAPS::motifSummarization(motifList = motifList, scATACData = countMatrix99, granges = subsetGranges, genome = "hg19", cellNames = colnames(countMatrix99), pCutoff = 5e-09)
+
+#convert to log space, as some motifs have high counts
+logMotifs <- log1p(motifsSchep)
+
+params <- CogapsParams(nPatterns=9, nIterations=10000, seed=42, singleCell=TRUE, sparseOptimization=TRUE, distributed="genome-wide", geneNames=TFBSTools::ID(motifList), sampleNames=colnames(countMatrix99))
+params <- setDistributedParams(params, nSets=2)
+
+saveRDS(params, file="data/motifs_9pat_10kIt_4sets.rds")
+
+#load CoGAPS result
+motifResult = readRDS("data/SchepByMotifsResult.rds")
+ATACCoGAPS::cgapsPlot(motifResult, as.factor(colnames(countMatrix99)), col, ylab = "Pattern Weight")
+ATACCoGAPS::heatmapPatternMatrix(motifResult, as.factor(colnames(countMatrix99)), cellCols = col, col = viridis::magma(n=9))
+
+patternMarkerMotifs <- CoGAPS::patternMarkers(motifResult)
+patScores = as.data.frame(patternMarkerMotifs$PatternMarkerScores)
+motifs = rownames(patScores)
+motifPatList = vector(mode=  "list", length = ncol(patScores))
+for(i in seq(ncol(patScores))) {
+    topMotifsPat = which(patScores[,i] < 0.03)
+    motifPatList[[i]] = topMotifsPat
+}
+
+#pattern 6 has strong signal for fibroblasts
+pat6MarkerMotifs <- motifs[motifPatList[[6]]]
+
+#finding motifs in same motif list for cogaps ran by peaks
+cMotifMatch <- ATACCoGAPS::motifPatternMatch(cg99Matrix, subsetGranges, motifList, "hg19")
+
+length(cMotifMatch[[4]])
+length(pat6MarkerMotifs)
+#compare the motifs found for the two fibroblast-associated patterns
+intersect(pat6MarkerMotifs, cMotifMatch[[4]])
+#we find different motifs with the different summarizations; indicates different regulatory patterns discovered
+```
+
+Higher number of patterns
+```{r}
+#cogaps run for 18 patterns
+cgapsResult18Pat <- readRDS("data/SchepCoGAPSResult18Pat.rds")
+ATACCoGAPS::heatmapPatternMatrix(cgapsResult18Pat, as.factor(colnames(countMatrix99)), cellCols = col, col = viridis::magma(n=9))
+
+matchedGenes <- ATACCoGAPS::genePatternMatch(cogapsResult = cgapsResult18Pat, generanges = subsetGranges, genome = Homo.sapiens, scoreThreshold = 0.1)
+matchedpaths <- ATACCoGAPS::pathwayMatch(matchedGenes, dPathways, p_threshold = 0.001)
+
+motifTFResults <- ATACCoGAPS::simpleMotifTFMatch(cogapsResult = cgapsResult18Pat, generanges = subsetGranges, organism = "Homo sapiens", genome = "hg19", scoreThreshold = 0.05)
+
+motifTFResults$tfMatchSummary
+
+#cogaps run for 13 patterns
+cgapsResult13Pat <- readRDS("data/SchepCoGAPSResult13Pat.rds")
+ATACCoGAPS::heatmapPatternMatrix(cgapsResult13Pat, as.factor(colnames(countMatrix99)), cellCols = col, col = viridis::magma(n=9))
+```
+
+
+
+
+
+
+
+
+
+

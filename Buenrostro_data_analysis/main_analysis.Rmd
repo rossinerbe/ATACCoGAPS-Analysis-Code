@@ -1,0 +1,58 @@
+---
+title: "Buenrostro_main_analysis"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+Read in Data
+```{r}
+#getting count matrix - peaks x cells
+repmis::source_data("https://github.com/FertigLab/ATACCoGAPS/blob/master/BuenrostroFinalSubsetData.Rdata?raw=true")
+#getting GRanges for peaks
+repmis::source_data("https://github.com/FertigLab/ATACCoGAPS/blob/master/BuenrostroGRanges.Rdata?raw=true")
+#getting celltypes
+repmis::source_data("https://github.com/FertigLab/ATACCoGAPS/blob/master/BuenrostroCellTypes.Rdata?raw=true")
+#cogaps result
+cogapsResult <- readRDS("data/BuenrostroCogapsResult.rds")
+```
+
+Plot Pattern Matrix
+```{r}
+set.seed(2)
+col2 = gtools::permute(rainbow(10))
+
+ATACCoGAPS::cgapsPlot(cgaps_result = cogapsResult, sample.classifier = as.factor(BuenrostroCellTypes), col2)
+
+ATACCoGAPS::heatmapPatternMatrix(cgaps_result = cogapsResult, sample.classifier = as.factor(BuenrostroCellTypes), cellCols = col2, col = viridis::magma(n=9))
+```
+
+```{r}
+ATACCoGAPS::heatmapPatternMarkers(cgaps_result = cogapsResult, atac_data = BuenrostroFinalSubsetData, celltypes = as.factor(BuenrostroCellTypes), numregions = 50, colColors = col2, col = viridis::plasma(n = 2))
+
+library(Homo.sapiens)
+matchedGenes <- ATACCoGAPS::genePatternMatch(cogapsResult = cogapsResult, generanges = BuenrostroGRanges, genome = Homo.sapiens, scoreThreshold = 0.05)
+
+#download pathways from msigDB
+library(dplyr)
+dPathways <- msigdbr::msigdbr(species = "Homo sapiens", category ="H") %>% dplyr::select(gs_name, gene_symbol) %>% as.data.frame()
+
+matchedPathways <- ATACCoGAPS::pathwayMatch(matchedGenes, pathways = dPathways, p_threshold = 0.001)
+matchedPathways
+
+GOterms <- ATACCoGAPS::findGOEnrichment(cogapsResult = cogapsResult, granges = BuenrostroGRanges, genome = "hg19", scoreThreshold = 0.05)
+GOterms[[7]][1:10,]
+
+TFmotifs <- ATACCoGAPS::simpleMotifTFMatch(cogapsResult = cogapsResult, generanges = BuenrostroGRanges, organism = "Homo sapiens", genome = "hg19", scoreThreshold = 0.05)
+
+TFmotifs$tfMatchSummary
+```
+
+Motif result
+```{r}
+motifCogapsResult <- readRDS("data/BuenrostroMotifResult.rds")
+ATACCoGAPS::heatmapPatternMatrix(cgaps_result = motifCogapsResult, sample.classifier = as.factor(BuenrostroCellTypes), cellCols = col2, col = viridis::magma(n=9))
+```
+
+
+

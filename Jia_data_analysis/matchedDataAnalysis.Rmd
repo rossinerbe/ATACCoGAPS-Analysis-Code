@@ -1,0 +1,124 @@
+---
+title: "matchedRNAATACAnalysis"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+atacMatrix <- readRDS("data/matchedATACMatrix.rds")
+rnaMatrix <- readRDS("data/matchedRNAMatrix.rds")
+atacResult <- readRDS("data/matchedATACResult.rds")
+rnaResult <- readRDS("data/matchedRNAResult.rds")
+
+ATACCoGAPS::cgapsPlot(atacResult, as.factor(colnames(atacMatrix)))
+ATACCoGAPS::cgapsPlot(rnaResult, as.factor(colnames(rnaMatrix)))
+
+ATACCoGAPS::heatmapPatternMatrix(atacResult, as.factor(colnames(atacMatrix)), col = viridis::magma(n = 9))
+ATACCoGAPS::heatmapPatternMatrix(rnaResult, as.factor(colnames(rnaMatrix)), col = viridis::magma(n = 9))
+
+```
+
+```{r}
+mouse = biomaRt::useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+rna_seq_genes = biomaRt::getBM(attributes=c("mgi_symbol", "ensembl_gene_id") , filters="ensembl_gene_id", values =rownames(rnaMatrix),mart=mouse)
+
+nosymbol = setdiff(rownames(rnaMatrix), rna_seq_genes[,2])
+rminds = c()
+for(i in 1:length(nosymbol)){
+  ind = which(rownames(rnaMatrix) == nosymbol[i])
+  rminds = c(rminds, ind)
+}
+
+rnaMatrix2 = rnaMatrix
+
+
+for(i in 1:nrow(rnaMatrix2)) {
+  ind = which(rna_seq_genes$ensembl_gene_id == rownames(rnaMatrix2)[i])
+  if(length(ind) == 1){
+  rownames(rnaMatrix2)[i] = rna_seq_genes$mgi_symbol[ind]
+  }
+}
+
+motiflist = readRDS("data/ms_motiflist.rds")
+tfInfo = readRDS("data/mouse_TF_info.rds")
+
+atacGranges = ATACCoGAPS::peaksToGRanges(rownames(atacMatrix), "-")
+
+patternMotifs = ATACCoGAPS::motifPatternMatch(atacResult, 100, atacGranges, motiflist, "mm10")
+TFs = ATACCoGAPS::getTFs(patternMotifs, tfInfo)
+
+load("data/regInfo.rda")
+
+TFGenes = ATACCoGAPS::findRegulatoryNetworks(TFs, mouseRegNets)
+
+patMarkers = CoGAPS::patternMarkers(rnaResult)
+genesRanks =patMarkers$PatternMarkerRanks
+for(i in seq(nrow(genesRanks))) {
+  ind = which(rna_seq_genes$ensembl_gene_id == rownames(genesRanks)[i])
+  if(length(ind) == 1){
+  rownames(genesRanks)[i] = rna_seq_genes$mgi_symbol[ind]
+  }
+}  
+
+RNAvalidate <- ATACCoGAPS::RNAseqTFValidation(TFGenes = TFGenes, RNACoGAPSResult = genesRanks, RNAPatternSet = c(3,6), ATACPatternSet = c(1,4,6), matrix = TRUE)
+
+pv.qqplot = function(pvector, main=NULL, ...) {
+  o = -log10(sort(pvector,decreasing=F))
+  e = -log10( 1:length(o)/length(o) )
+  plot(e,o,pch=19,cex=1, main=main, ...,
+       xlab=expression(Expected~~-log[10](italic(p))),
+       ylab=expression(Observed~~-log[10](italic(p))),
+       xlim=c(0,max(e)), ylim=c(0,max(o)))
+  #45 degree line
+  abline(0,1, col='red')
+  #bonf. cutoff line
+  abline(-log10(0.05/length(pvector)), 0)
+}
+
+pv.qqplot(RNAvalidate[[6]]$pval)
+
+tbx20genes <- c("Nppa", "Nkx2-5", "Tbx2" ,"Mef2c")
+
+#plot gene ranks
+isTbx20Gene <- rep(0, nrow(genesRanks))
+tbx20GeneInds <- genesRanks[which(rownames(genesRanks) %in% tbx20genes), 6]
+Inds <- c(tbx20GeneInds, (tbx20GeneInds + 1), (tbx20GeneInds - 1), (tbx20GeneInds + 2), (tbx20GeneInds - 2), (tbx20GeneInds + 3), (tbx20GeneInds - 3), (tbx20GeneInds + 4), (tbx20GeneInds - 4), (tbx20GeneInds + 5), (tbx20GeneInds - 5))
+
+isTbx20Gene[Inds] <- 1
+
+plotData <- data.frame(x = rep(0, length(isTbx20Gene)), y = seq(length(isTbx20Gene)), Tbx20 = as.factor(isTbx20Gene))
+
+
+ggplot(plotData, aes(x, y )) +
+  geom_tile(aes(fill = Tbx20)) +
+  scale_fill_manual(values = c("blue", "gold"))
+
+
+
+library(Mus.musculus)
+tbx20GA <- ATACCoGAPS::geneAccessibility(tbx20genes, atacGranges, atacMatrix, Mus.musculus)
+
+rownames(tbx20GA$Tbx2)
+
+ATACCoGAPS::heatmapGeneAccessibility(tbx20GA$Mef2c, as.factor(colnames(atacMatrix)), colColors = c("darkorchid1", "blue"), col = c("white", "darkgreen"))
+ATACCoGAPS::heatmapGeneAccessibility(tbx20GA$`Nkx2-5`, as.factor(colnames(atacMatrix)), colColors = c("darkorchid1", "blue"), col = c("white", "darkgreen"))
+ATACCoGAPS::heatmapGeneAccessibility(tbx20GA$Tbx2, as.factor(colnames(atacMatrix)), colColors = c("darkorchid1", "blue"), col = c("white", "darkgreen"))
+
+```
+
+
+```{r}
+pat6GeneRanks <- genesRanks[,6]
+topPat6Genes <- names(pat6GeneRanks[which(pat6GeneRanks %in% c(1:5))])
+
+pat6GA <- ATACCoGAPS::geneAccessibility(topPat6Genes, atacGranges, atacMatrix, Mus.musculus)
+
+ATACCoGAPS::heatmapGeneAccessibility(pat6GA$Klhl6, as.factor(colnames(atacMatrix)), colColors = c("darkorchid1", "blue"), col = c("white", "darkgreen"))
+ATACCoGAPS::heatmapGeneAccessibility(pat6GA$Kcng2, as.factor(colnames(atacMatrix)), colColors = c("darkorchid1", "blue"), col = c("white", "darkgreen"))
+ATACCoGAPS::heatmapGeneAccessibility(pat6GA$Obscn, as.factor(colnames(atacMatrix)))
+ATACCoGAPS::heatmapGeneAccessibility(pat6GA$C330021F23Rik, as.factor(colnames(atacMatrix)))
+ATACCoGAPS::heatmapGeneAccessibility(pat6GA$Cavin3, as.factor(colnames(atacMatrix)))
+```
+
+

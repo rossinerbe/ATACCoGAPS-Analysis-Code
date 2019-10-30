@@ -1,0 +1,136 @@
+---
+title: "cisTopicComparison"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+Install cisTopic and prepare the cisTopicObject
+```{r}
+devtools::install_github("aertslab/RcisTarget")
+devtools::install_github("aertslab/AUCell")
+devtools::install_github("aertslab/cisTopic")
+library(cisTopic)
+
+#read in countMatrix from Schep et al
+countMatrix <- readRDS("data/SchepCountMatrix.rds")
+
+#remove peaks and cells with no counts, as per cisTopic default
+noReadCells <- which(apply(countMatrix, 2, sum) == 0)
+noReadPeaks <- which(apply(countMatrix, 1, sum) == 0) 
+#all peaks have at least one count
+
+countMatrix <- countMatrix[,-noReadCells]
+
+peaks <- rownames(countMatrix)
+celltypes <- colnames(countMatrix)
+
+#changing peaks to format used by cisTopic constructor
+peaks <- stringr::str_replace(peaks, "-", ":")
+
+rownames(countMatrix) <- peaks
+#adding metadata is problematic with cisTopic funtions if the celltypes are left as column names
+colnames(countMatrix) <- seq(ncol(countMatrix))
+
+#call CisTopic constructor
+cTObj <- cisTopic::createcisTopicObject(countMatrix, project.name = "SchepscATAC1")
+
+#add celltype metadata
+df <- data.frame(cellType = celltypes)
+rownames(df) <- seq(ncol(countMatrix))
+
+
+cTObj <- cisTopic::addCellMetadata(cTObj, cell.data = df)
+
+```
+
+Run cisTopic
+```{r}
+cisTopicObject <- cisTopic::runModels(cTObj, topic=c(10:25), seed=987, nCores=2, burnin = 120, iterations = 150, addModels=FALSE)
+
+#select number of topics to use for analysis
+cisTopicObject <- cisTopic::selectModel(cisTopicObject)
+cisTopic::logLikelihoodByIter(cisTopicObject, select=c(15:25))
+
+#plot umap
+cisTopicObject <- cisTopic::runUmap(cisTopicObject, target='cell')
+par(mfrow=c(2,5))
+cisTopic::plotFeatures(cisTopicObject, method='Umap', target='cell', topic_contr='Probability', colorBy=NULL, cex.legend = 0.8, factor.max=.75, dim=2, legend=TRUE)
+
+#plot heatmap
+col <- c("salmon", 'aquamarine', 'aquamarine3', "aquamarine4", "darkorchid1", 'limegreen', "magenta", "orangered", "darkgreen", "darkred", "red3", "darkorange")
+
+cellFct = as.factor(celltypes)
+
+colVar = vector(mode = 'character', length = length(celltypes))
+for(i in seq_along(col)){
+  colVar[which(celltypes == levels(cellFct)[i])] = col[i]
+}
+
+names(colVar) = celltypes
+
+
+cisTopic::cellTopicHeatmap(cisTopicObject, colorBy = 'cellType', colVars = list(cellType = colVar))
+#colors don't plot as intended along celltypes
+
+#fixed color plotting issue
+source("Schep_data_analysis/fixedTopicHeatmap.R")
+
+heatmapTopics(cisTopicObject, colorBy = 'cellType', colVars = list(cellType = colVar))
+
+heatmapTopics(cisTopicObject, method = "Probability", colorBy = 'cellType', colVars = list(cellType = colVar))
+```
+z-score method more clearly distinguishes cell lines by topic
+
+
+```{r}
+pred.matrix <- cisTopic::predictiveDistribution(cisTopicObject)
+cisTopicObject <- cisTOpic::getRegionsScores(cisTopicObject, method='NormTop', scale=TRUE)
+
+library(TxDb.Hsapiens.UCSC.hg19.knownGene)
+txdb <- TxDb.Hsapiens.UCSC.hg19.knownGene
+
+par(mfrow=c(2,5))
+cisTopicObject <- cisTOpic::binarizecisTopics(cisTopicObject, thrP=0.975, plot=TRUE)
+
+library(org.Hs.eg.db)
+cisTopicObject <- cisTopic::annotateRegions(cisTopicObject, txdb=TxDb.Hsapiens.UCSC.hg19.knownGene, annoDb='org.Hs.eg.db')
+
+cisTopicObject <- cisTopic::GREAT(cisTopicObject, genome='hg19', fold_enrichment=2, geneHits=1, sign=0.05, request_interval=10)
+
+#fibroblasts
+cisTopic::ontologyDotPlot(cisTopicObject, top=5, topics=c(5,22), var.y='name', order.by='Binom_Adjp_BH')
+#moncytes
+cisTopic::ontologyDotPlot(cisTopicObject, top=5, topics=c(16, 18), var.y='name', order.by='Binom_Adjp_BH')
+#k562
+cisTopic::ontologyDotPlot(cisTopicObject, top=5, topics=c(1,10), var.y='name', order.by='Binom_Adjp_BH')
+#TF1
+cisTopic::ontologyDotPlot(cisTopicObject, top=5, topics=c(9), var.y='name', order.by='Binom_Adjp_BH')
+#GM
+cisTopic::ontologyDotPlot(cisTopicObject, top=5, topics=c(2,12), var.y='name', order.by='Binom_Adjp_BH')
+#h1ESC
+cisTopic::ontologyDotPlot(cisTopicObject, top=5, topics=c(4), var.y='name', order.by='Binom_Adjp_BH')
+
+#HL60
+cisTopic::ontologyDotPlot(cisTopicObject, top=5, topics=c(13), var.y='name', order.by='Binom_Adjp_BH')
+
+
+
+#compare to GO enrichment from CoGAPS
+cogapsResult <- readRDS("data/countMatrix99_result.rds")
+params <- COGAPS::getOriginalParameters(cogapsResult)
+peaks <- COGAPS::getParam(params, "geneNames")
+granges = ATACCoGAPS::peaksToGRanges(peaks, "-")
+
+GOList <- findGOEnrichment(cogapsResult, granges, "hg19", 0.05)
+
+#create a version of the ontologyDotPlot function that works with CoGAPS input for comparative visualization
+source("Schep_data_analysis/cogapsGeneOntologyPlot.R")
+cogapsGeneOntologyPlot(GOList[[1]], top = 5, pattern = 1)
+cogapsGeneOntologyPlot(GOList[[2]], top = 5, pattern = 2)
+cogapsGeneOntologyPlot(GOList[[3]], top = 5, pattern = 3)
+cogapsGeneOntologyPlot(GOList[[4]], top = 5, pattern = 4)
+cogapsGeneOntologyPlot(GOList[[5]], top = 5, pattern = 5)
+cogapsGeneOntologyPlot(GOList[[6]], top = 5, pattern = 6)
+cogapsGeneOntologyPlot(GOList[[7]], top = 5, pattern = 7)
+```
+
