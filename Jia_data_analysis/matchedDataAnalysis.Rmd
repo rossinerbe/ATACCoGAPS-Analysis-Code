@@ -45,7 +45,7 @@ tfInfo = readRDS("data/mouse_TF_info.rds")
 
 atacGranges = ATACCoGAPS::peaksToGRanges(rownames(atacMatrix), "-")
 
-patternMotifs = ATACCoGAPS::motifPatternMatch(atacResult, 100, atacGranges, motiflist, "mm10")
+patternMotifs = ATACCoGAPS::motifPatternMatch(atacResult, atacGranges, motiflist, "mm10", 0.1)
 TFs = ATACCoGAPS::getTFs(patternMotifs, tfInfo)
 
 load("data/regInfo.rda")
@@ -76,24 +76,11 @@ pv.qqplot = function(pvector, main=NULL, ...) {
   abline(-log10(0.05/length(pvector)), 0)
 }
 
-pv.qqplot(RNAvalidate[[6]]$pval)
+pv.qqplot(RNAvalidate[[4]]$pval)
 
 tbx20genes <- c("Nppa", "Nkx2-5", "Tbx2" ,"Mef2c")
 
-#plot gene ranks
-isTbx20Gene <- rep(0, nrow(genesRanks))
-tbx20GeneInds <- genesRanks[which(rownames(genesRanks) %in% tbx20genes), 6]
-Inds <- c(tbx20GeneInds, (tbx20GeneInds + 1), (tbx20GeneInds - 1), (tbx20GeneInds + 2), (tbx20GeneInds - 2), (tbx20GeneInds + 3), (tbx20GeneInds - 3), (tbx20GeneInds + 4), (tbx20GeneInds - 4), (tbx20GeneInds + 5), (tbx20GeneInds - 5))
-
-isTbx20Gene[Inds] <- 1
-
-plotData <- data.frame(x = rep(0, length(isTbx20Gene)), y = seq(length(isTbx20Gene)), Tbx20 = as.factor(isTbx20Gene))
-
-
-ggplot(plotData, aes(x, y )) +
-  geom_tile(aes(fill = Tbx20)) +
-  scale_fill_manual(values = c("blue", "gold"))
-
+tbx20GeneRanks <- genesRanks[which(rownames(genesRanks) %in% tbx20genes), 6]
 
 
 library(Mus.musculus)

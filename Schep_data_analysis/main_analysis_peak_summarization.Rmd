@@ -151,9 +151,22 @@ saveRDS(dPathways, "data/msigdbrHallmarkPathways10_2019.rds")
 matchedPathways = ATACCoGAPS::pathwayMatch(matchedGenes, dPathways, p_threshold = 0.001)
 
 matchedPathways
+
+#comparing pathways found at different patternMarker score thresholds
+matchedGenes0.1 <- ATACCoGAPS::genePatternMatch(cogapsResult = cg99Matrix, generanges = subsetGranges, genome = Homo.sapiens, scoreThreshold = 0.1)
+matchedPathways0.1 = ATACCoGAPS::pathwayMatch(matchedGenes, dPathways, p_threshold = 0.001)
+matchedPathways0.1
+
+matchedGenes0.3 <- ATACCoGAPS::genePatternMatch(cogapsResult = cg99Matrix, generanges = subsetGranges, genome = Homo.sapiens, scoreThreshold = 0.3)
+matchedPathways0.3 = ATACCoGAPS::pathwayMatch(matchedGenes, dPathways, p_threshold = 0.001)
+matchedPathways0.3
+
+lapply(matchedPathways, function(x){x[[3]]})
+lapply(matchedPathways0.1, function(x){x[[3]]})
+lapply(matchedPathways0.3, function(x){x[[3]]})
+#the same pathways are identified at different thresholds; relatively robust to choice of threshold value
 ```
 
-EMT in Fibroblasts and Hallmark inflammatory response in monocytes are the most well supported by known biology.
 
 
 Find potential TF bindings
@@ -162,12 +175,20 @@ motifTFResults <- ATACCoGAPS::simpleMotifTFMatch(cogapsResult = cg99Matrix, gene
 
 motifTFResults$tfMatchSummary
 
+#other score thresholds
+motifTFResults0.1 <- ATACCoGAPS::simpleMotifTFMatch(cogapsResult = cg99Matrix, generanges = subsetGranges, organism = "Homo sapiens", genome = "hg19", scoreThreshold = 0.1)
+motifTFResults0.3 <- ATACCoGAPS::simpleMotifTFMatch(cogapsResult = cg99Matrix, generanges = subsetGranges, organism = "Homo sapiens", genome = "hg19", scoreThreshold = 0.3)
+
+motifTFResults0.1$tfMatchSummary
+motifTFResults0.3$tfMatchSummary
+#motif results are also quite robust across different thresholds
+
 #summary for most enriched TF binding in pattern7 (monocyte)
 motifTFResults$tfDescriptions[[7]][which(motifTFResults$tfDescriptions[[7]][,2]=="IRF1"), 1]
 
 
 #check accessibility of predicted TFs for fibroblasts
-fbTFAcc <- ATACCoGAPS::geneAccessibility(geneList = c("FOXP1", "JUN", "IRF1", "FOS"), peakGranges = subsetGranges, atacData = countMatrix99, genome = Homo.sapiens)
+fbTFAcc <- ATACCoGAPS::geneAccessibility(geneList = c("JUN", "IRF1", "FOS"), peakGranges = subsetGranges, atacData = countMatrix99, genome = Homo.sapiens)
 
 
 mean(apply(countMatrix99, 2, sum)) #about 6600 reads/cell
@@ -178,7 +199,6 @@ averageAcc <- mean(apply(binaryMatrix, 1, sum))/ncol(countMatrix99) #about 5-6% 
 
 
 foldAccessibility(fbTFAcc$FOS, cellTypes99, "Fibroblasts", binaryMatrix)
-foldAccessibility(fbTFAcc$FOXP1, cellTypes99, "Fibroblasts", binaryMatrix)
 foldAccessibility(fbTFAcc$IRF1, cellTypes99, "Fibroblasts", binaryMatrix)
 foldAccessibility(fbTFAcc$JUN, cellTypes99, "Fibroblasts", binaryMatrix)
 
@@ -226,36 +246,10 @@ lapply(patMarkers, length)
 
 patRanks <- pm$PatternMarkerRanks
 
-predictCellPopulation <- function(cgapsResult) {
-  PM <- CoGAPS::patternMarkers(cgapsResult, axis = 2)
-  patMarkers <- PM$PatternMarkers
-  lengths <- lapply(patMarkers, length)
-  patRanks <- PM$PatternMarkerRanks
-  
-  predictionMatrix <- matrix(NA, nrow(patRanks), ncol(patRanks)) 
-  for(i in seq(ncol(patRanks))){
-    prediction <- rep(0, nrow(patRanks))
-    preds <- which(patRanks[,i] %in% seq(lengths[[i]]))
-    prediction[preds] <- 1
-    predictionMatrix[,i] <- prediction
-  }
-  
-  return(predictionMatrix)
-}
+pmcc <- ATACCoGAPS::patternMarkerCellClassifier(cg99Matrix)
 
-predictionToClasses <- function(predictionMatrix) {
-  classList <- apply(predictionMatrix, 2, function(x){
-    cellselect <- which(x == 1)
-  })
-  cellClassifier <- vector("numeric", nrow(predictionMatrix))
-  for(i in seq(ncol(predictionMatrix))){
-    cellClassifier[classList[[i]]] <- i
-  }
-  return(cellClassifier)
-}
-
-pMatrix <- predictCellPopulation(cg99Matrix)
-cellClass <- predictionToClasses(pMatrix)
+pMatrix <- pmcc$predictionMatrix
+cellClass <- pmcc$cellClassifier
 
 cellTypes <- colnames(countMatrix99)
 
@@ -313,7 +307,7 @@ ggplot(plotData, aes(x = Pattern, y = AUC)) +
   ylim(c(0,1)) +
   scale_x_continuous(breaks = seq(1, 7, 1))
 
-col2 <- c("red", "magenta", "darkorange", "aquamarine3", "salmon",      "darkorchid1", "grey", "darkgreen")
+col2 <- c("black", RColorBrewer::brewer.pal(7, "Dark2"))
 
 cellClass <- plyr::mapvalues(as.factor(cellClass), from = c("0", "1", "2", "3", "4", "5", "6", "7"), to = c("Unclassified", "Pattern1", "Pattern2", "Pattern3", "Pattern4", "Pattern5", "Pattern6", "Pattern7"))
 
@@ -321,6 +315,27 @@ ATACCoGAPS::cgapsPlot(cg99Matrix, cellClass, col2)
 
 
 ATACCoGAPS::heatmapPatternMatrix(cg99Matrix, as.factor(cellClass), cellCols = col2, rowColors = rowColors, col = viridis::magma(n=9))
+
+#getting order of celltypes matched with order of pattern classifications for plotting
+cfct <- factor(colnames(countMatrix99), levels = c("K562", "TF1", "GM", "GM12878", "GM12878rep2", "BJ", "H1ESC", "HL60", "LMPP", "PB1022", "SU070", "SU353"), ordered = TRUE)
+
+cfct2 <- plyr::mapvalues(as.factor(cfct), from = c("K562", "TF1", "GM", "GM12878", "GM12878rep2", "BJ", "H1ESC", "HL60", "LMPP", "PB1022", "SU070", "SU353"), to = c("K562 Erythroleukemia", "TF1 Erythroblast", "GM LCL 1","GM LCL 2 Rep1","GM LCL 2 Rep2", "BJ Fibroblasts", "H1ESCs","HL60 Leukemia", "LMPP", "PB1022 Monocyte", "AML Patient 070", "AML Patient 353"))
+
+combinedClasses <- data.frame(cellClasses = as.factor(cellClass), cellType = cfct2)
+sortClasses <- combinedClasses[order(combinedClasses$cellClasses),]
+
+col <- c("magenta", "darkorange", 'aquamarine', 'aquamarine3', "aquamarine4", "salmon", "darkorchid1", 'limegreen', "orangered", "darkgreen", "darkred", "red3")
+
+ATACCoGAPS::heatmapPatternMatrix(cg99Matrix, sortClasses$cellType, cellCols = col, col = viridis::magma(n=9), sort = FALSE)
+
+ATACCoGAPS::cgapsPlot(cg99Matrix, cfct2, col)
+
+#pattern 7 with LMPP and AML included
+pat7class <- rep(0, length(cellTypes))
+pat7class[c(which(cellTypes == "PB1022"), which(cellTypes == "LMPP"), which(cellTypes == "SU070"), which(cellTypes == "SU353"))] <- 1
+pat7roc <- pROC::roc(pat7class, pMatrix[,7])
+pROC::auc(pat7roc)
+
 ```
 
 
@@ -394,7 +409,7 @@ patScores = as.data.frame(patternMarkerMotifs$PatternMarkerScores)
 motifs = rownames(patScores)
 motifPatList = vector(mode=  "list", length = ncol(patScores))
 for(i in seq(ncol(patScores))) {
-    topMotifsPat = which(patScores[,i] < 0.03)
+    topMotifsPat = which(patScores[,i] < 0.1)
     motifPatList[[i]] = topMotifsPat
 }
 
@@ -408,6 +423,17 @@ length(cMotifMatch[[4]])
 length(pat6MarkerMotifs)
 #compare the motifs found for the two fibroblast-associated patterns
 intersect(pat6MarkerMotifs, cMotifMatch[[4]])
+
+#pattern4 has strong signal for GM LCLs
+pat4MarkerMotifs <- motifs[motifPatList[[4]]]
+length(pat6MarkerMotifs)
+intersect(pat4MarkerMotifs, cMotifMatch[[3]])
+
+pairwise.wilcox.test(getSampleFactors(motifResult)[,2], as.factor(colnames(countMatrix99)))#pattern2 is most strongly associated to H1ESCs
+pat2MarkerMotifs <- motifs[motifPatList[[2]]]
+length(pat2MarkerMotifs)
+intersect(pat2MarkerMotifs, cMotifMatch[[5]])
+
 #we find different motifs with the different summarizations; indicates different regulatory patterns discovered
 ```
 
