@@ -380,6 +380,10 @@ mean(pRPvals[3, which(BuenrostroCellTypes == "pDC")])
 #Erythroleukia pattern
 pairwise.wilcox.test(projectRResults$projection[1,], BuenrostroCellTypes, p.adjust.method = "BH")
 mean(pRPvals[1, which(BuenrostroCellTypes == "MEP")])
+
+pr <- projectRResults$projection
+p7 <- pr[7,]
+boxplot(p7 ~ as.factor(BuenrostroCellTypes), xlab = "Cell Type", ylab = "Pattern Weight")
 ```
 
 
