@@ -117,14 +117,16 @@ cisTopic::ontologyDotPlot(cisTopicObject, top=5, topics=c(13), var.y='name', ord
 
 #compare to GO enrichment from CoGAPS
 cogapsResult <- readRDS("data/countMatrix99_result.rds")
-params <- COGAPS::getOriginalParameters(cogapsResult)
-peaks <- COGAPS::getParam(params, "geneNames")
+params <- CoGAPS::getOriginalParameters(cogapsResult)
+peaks <- CoGAPS::getParam(params, "geneNames")
 granges = ATACCoGAPS::peaksToGRanges(peaks, "-")
 
-GOList <- findGOEnrichment(cogapsResult, granges, "hg19", 0.05)
+GOList <- ATACCoGAPS::findGOEnrichment(cogapsResult, granges, "hg19", scoreThreshold = 0.05)
+#without thresholding rGREAT returns warning that too many genes are selected
 
 #create a version of the ontologyDotPlot function that works with CoGAPS input for comparative visualization
 source("Schep_data_analysis/cogapsGeneOntologyPlot.R")
+library(ggplot2)
 cogapsGeneOntologyPlot(GOList[[1]], top = 5, pattern = 1)
 cogapsGeneOntologyPlot(GOList[[2]], top = 5, pattern = 2)
 cogapsGeneOntologyPlot(GOList[[3]], top = 5, pattern = 3)

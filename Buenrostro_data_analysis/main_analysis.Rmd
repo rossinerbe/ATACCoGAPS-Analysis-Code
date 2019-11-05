@@ -31,19 +31,16 @@ ATACCoGAPS::heatmapPatternMatrix(cgaps_result = cogapsResult, sample.classifier 
 ATACCoGAPS::heatmapPatternMarkers(cgaps_result = cogapsResult, atac_data = BuenrostroFinalSubsetData, celltypes = as.factor(BuenrostroCellTypes), numregions = 50, colColors = col2, col = viridis::plasma(n = 2))
 
 library(Homo.sapiens)
-matchedGenes <- ATACCoGAPS::genePatternMatch(cogapsResult = cogapsResult, generanges = BuenrostroGRanges, genome = Homo.sapiens, scoreThreshold = 0.05)
+matchedGenes <- ATACCoGAPS::genePatternMatch(cogapsResult = cogapsResult, generanges = BuenrostroGRanges, genome = Homo.sapiens)
 
 #download pathways from msigDB
 library(dplyr)
 dPathways <- msigdbr::msigdbr(species = "Homo sapiens", category ="H") %>% dplyr::select(gs_name, gene_symbol) %>% as.data.frame()
 
 matchedPathways <- ATACCoGAPS::pathwayMatch(matchedGenes, pathways = dPathways, p_threshold = 0.001)
-matchedPathways
+lapply(matchedPathways, function(x){x[[4]]})
 
-GOterms <- ATACCoGAPS::findGOEnrichment(cogapsResult = cogapsResult, granges = BuenrostroGRanges, genome = "hg19", scoreThreshold = 0.05)
-GOterms[[7]][1:10,]
-
-TFmotifs <- ATACCoGAPS::simpleMotifTFMatch(cogapsResult = cogapsResult, generanges = BuenrostroGRanges, organism = "Homo sapiens", genome = "hg19", scoreThreshold = 0.05)
+TFmotifs <- ATACCoGAPS::simpleMotifTFMatch(cogapsResult = cogapsResult, generanges = BuenrostroGRanges, organism = "Homo sapiens", genome = "hg19")
 
 TFmotifs$tfMatchSummary
 ```

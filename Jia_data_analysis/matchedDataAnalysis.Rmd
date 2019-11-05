@@ -45,6 +45,7 @@ tfInfo = readRDS("data/mouse_TF_info.rds")
 
 atacGranges = ATACCoGAPS::peaksToGRanges(rownames(atacMatrix), "-")
 
+#thresholding for computational time, we have shown TFs found are robust to this thresholding (see Schep data analysis)
 patternMotifs = ATACCoGAPS::motifPatternMatch(atacResult, atacGranges, motiflist, "mm10", 0.1)
 TFs = ATACCoGAPS::getTFs(patternMotifs, tfInfo)
 

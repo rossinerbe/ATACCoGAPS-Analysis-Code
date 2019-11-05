@@ -139,7 +139,7 @@ subsetGranges <- ATACCoGAPS::peaksToGRanges(rownames(countMatrix99), sep= "-")
 
 #get genes matched to patternMarker peaks
 library(Homo.sapiens)
-matchedGenes <- ATACCoGAPS::genePatternMatch(cogapsResult = cg99Matrix, generanges = subsetGranges, genome = Homo.sapiens, scoreThreshold = 0.03)
+matchedGenes <- ATACCoGAPS::genePatternMatch(cogapsResult = cg99Matrix, generanges = subsetGranges, genome = Homo.sapiens)
 
 #download pathways from msigDB
 library(dplyr)
@@ -150,45 +150,61 @@ saveRDS(dPathways, "data/msigdbrHallmarkPathways10_2019.rds")
 #determine gene overlap between pathways and mathced genes
 matchedPathways = ATACCoGAPS::pathwayMatch(matchedGenes, dPathways, p_threshold = 0.001)
 
-matchedPathways
+lapply(matchedPathways, function(x){x[4]})
 
 #comparing pathways found at different patternMarker score thresholds
+matchedGenes0.03 <- ATACCoGAPS::genePatternMatch(cogapsResult = cg99Matrix, generanges = subsetGranges, genome = Homo.sapiens, scoreThreshold = 0.03)
+matchedPathways0.03 = ATACCoGAPS::pathwayMatch(matchedGenes0.03, dPathways, p_threshold = 0.001)
+
 matchedGenes0.1 <- ATACCoGAPS::genePatternMatch(cogapsResult = cg99Matrix, generanges = subsetGranges, genome = Homo.sapiens, scoreThreshold = 0.1)
-matchedPathways0.1 = ATACCoGAPS::pathwayMatch(matchedGenes, dPathways, p_threshold = 0.001)
-matchedPathways0.1
+matchedPathways0.1 = ATACCoGAPS::pathwayMatch(matchedGenes0.1, dPathways, p_threshold = 0.001)
 
 matchedGenes0.3 <- ATACCoGAPS::genePatternMatch(cogapsResult = cg99Matrix, generanges = subsetGranges, genome = Homo.sapiens, scoreThreshold = 0.3)
-matchedPathways0.3 = ATACCoGAPS::pathwayMatch(matchedGenes, dPathways, p_threshold = 0.001)
-matchedPathways0.3
+matchedPathways0.3 = ATACCoGAPS::pathwayMatch(matchedGenes0.3, dPathways, p_threshold = 0.001)
 
-lapply(matchedPathways, function(x){x[[3]]})
-lapply(matchedPathways0.1, function(x){x[[3]]})
-lapply(matchedPathways0.3, function(x){x[[3]]})
-#the same pathways are identified at different thresholds; relatively robust to choice of threshold value
+matchedGenes0.5 <- ATACCoGAPS::genePatternMatch(cogapsResult = cg99Matrix, generanges = subsetGranges, genome = Homo.sapiens, scoreThreshold = 0.5)
+matchedPathways0.5 = ATACCoGAPS::pathwayMatch(matchedGenes0.5, dPathways, p_threshold = 0.001)
+
+matchedGenes0.8 <- ATACCoGAPS::genePatternMatch(cogapsResult = cg99Matrix, generanges = subsetGranges, genome = Homo.sapiens, scoreThreshold = 0.8)
+matchedPathways0.8 = ATACCoGAPS::pathwayMatch(matchedGenes0.8, dPathways, p_threshold = 0.001)
+
+matchedGenes1 <- ATACCoGAPS::genePatternMatch(cogapsResult = cg99Matrix, generanges = subsetGranges, genome = Homo.sapiens, scoreThreshold = 1)
+matchedPathways1 = ATACCoGAPS::pathwayMatch(matchedGenes1, dPathways, p_threshold = 0.001)
+
+lapply(matchedPathways0.03, function(x){x[4]})
+lapply(matchedPathways0.1, function(x){x[4]})
+lapply(matchedPathways0.3, function(x){x[4]})
+lapply(matchedPathways0.5, function(x){x[4]})
+lapply(matchedPathways0.8, function(x){x[4]})
+lapply(matchedPathways1, function(x){x[4]})
+
+#the pathways identified at low thresholds are found as the most significant at higher thresholds; relatively robust to choice of threshold value, though more pathways appear when higher thresholds are used
 ```
 
 
 
 Find potential TF bindings
 ```{r}
-motifTFResults <- ATACCoGAPS::simpleMotifTFMatch(cogapsResult = cg99Matrix, generanges = subsetGranges, organism = "Homo sapiens", genome = "hg19", scoreThreshold = 0.03)
+motifTFResults <- ATACCoGAPS::simpleMotifTFMatch(cogapsResult = cg99Matrix, generanges = subsetGranges, organism = "Homo sapiens", genome = "hg19")
 
 motifTFResults$tfMatchSummary
 
 #other score thresholds
 motifTFResults0.1 <- ATACCoGAPS::simpleMotifTFMatch(cogapsResult = cg99Matrix, generanges = subsetGranges, organism = "Homo sapiens", genome = "hg19", scoreThreshold = 0.1)
 motifTFResults0.3 <- ATACCoGAPS::simpleMotifTFMatch(cogapsResult = cg99Matrix, generanges = subsetGranges, organism = "Homo sapiens", genome = "hg19", scoreThreshold = 0.3)
+motifTFResults1 <- ATACCoGAPS::simpleMotifTFMatch(cogapsResult = cg99Matrix, generanges = subsetGranges, organism = "Homo sapiens", genome = "hg19", scoreThreshold = 1)
 
 motifTFResults0.1$tfMatchSummary
 motifTFResults0.3$tfMatchSummary
-#motif results are also quite robust across different thresholds
+motifTFResults1$tfMatchSummary
+#motif results are quite robust across different thresholds
 
 #summary for most enriched TF binding in pattern7 (monocyte)
 motifTFResults$tfDescriptions[[7]][which(motifTFResults$tfDescriptions[[7]][,2]=="IRF1"), 1]
 
 
-#check accessibility of predicted TFs for fibroblasts
-fbTFAcc <- ATACCoGAPS::geneAccessibility(geneList = c("JUN", "IRF1", "FOS"), peakGranges = subsetGranges, atacData = countMatrix99, genome = Homo.sapiens)
+#check accessibility of predicted TFs for K562 cells
+KTFAcc <- ATACCoGAPS::geneAccessibility(geneList = c("TAL1", "EGR1", "RREB1", "NFE2"), peakGranges = subsetGranges, atacData = countMatrix99, genome = Homo.sapiens)
 
 
 mean(apply(countMatrix99, 2, sum)) #about 6600 reads/cell
@@ -197,16 +213,13 @@ averageAcc <- mean(apply(binaryMatrix, 1, sum))/ncol(countMatrix99) #about 5-6% 
 
 #find the amount of times cells are accessible in peaks overlapping with genes of interest. To produce rough estimate of accessibility to compare to the peak average for that cell type
 
-
-foldAccessibility(fbTFAcc$FOS, cellTypes99, "Fibroblasts", binaryMatrix)
-foldAccessibility(fbTFAcc$IRF1, cellTypes99, "Fibroblasts", binaryMatrix)
-foldAccessibility(fbTFAcc$JUN, cellTypes99, "Fibroblasts", binaryMatrix)
+lapply(KTFAcc, ATACCoGAPS::foldAccessibility, cellTypes99, "K562 Erythroleukemia", binaryMatrix)
 
 #plot accessibility
-ATACCoGAPS::heatmapGeneAccessibility(genePeaks = fbTFAcc$FOS, celltypes = cellTypes99, colColors = col, col = c("white", "darkgreen"))
-ATACCoGAPS::heatmapGeneAccessibility(genePeaks = fbTFAcc$FOXP1, celltypes = cellTypes99, colColors = col, col = c("white", "darkgreen"))
-ATACCoGAPS::heatmapGeneAccessibility(genePeaks = fbTFAcc$IRF1, celltypes = cellTypes99, colColors = col, col = c("white", "darkgreen"))
-ATACCoGAPS::heatmapGeneAccessibility(genePeaks = fbTFAcc$JUN, celltypes = cellTypes99, colColors = col, col = c("white", "darkgreen"))
+ATACCoGAPS::heatmapGeneAccessibility(genePeaks = KTFAcc$EGR1, celltypes = cellTypes99, colColors = col, col = c("white", "darkgreen"))
+ATACCoGAPS::heatmapGeneAccessibility(genePeaks = KTFAcc$NFE2, celltypes = cellTypes99, colColors = col, col = c("white", "darkgreen"))
+ATACCoGAPS::heatmapGeneAccessibility(genePeaks = KTFAcc$RREB1, celltypes = cellTypes99, colColors = col, col = c("white", "darkgreen"))
+ATACCoGAPS::heatmapGeneAccessibility(genePeaks = KTFAcc$TAL1, celltypes = cellTypes99, colColors = col, col = c("white", "darkgreen"))
 
 #check accessibility of predicted TFs for monocytes
 mnTFAcc <- ATACCoGAPS::geneAccessibility(geneList = c("IRF1", "CEBPA", "SPI1", "STAT1"), peakGranges = subsetGranges, atacData = countMatrix99, genome = Homo.sapiens)
@@ -216,21 +229,8 @@ ATACCoGAPS::heatmapGeneAccessibility(genePeaks = mnTFAcc$STAT1, celltypes = cell
 ATACCoGAPS::heatmapGeneAccessibility(genePeaks = mnTFAcc$CEBPA, celltypes = cellTypes99, colColors = col, col = c("white", "darkgreen"))
 ATACCoGAPS::heatmapGeneAccessibility(genePeaks = mnTFAcc$IRF1, celltypes = cellTypes99, colColors = col, col = c("white", "darkgreen"))
 
-foldAccessibility(mnTFAcc$IRF1, cellTypes99, "Monocyte", binaryMatrix)
-foldAccessibility(mnTFAcc$SPI1, cellTypes99, "Monocyte", binaryMatrix)
-foldAccessibility(mnTFAcc$STAT1, cellTypes99, "Monocyte", binaryMatrix)
-foldAccessibility(mnTFAcc$CEBPA, cellTypes99, "Monocyte", binaryMatrix)
+lapply(mnTFAcc, ATACCoGAPS::foldAccessibility, cellTypes99, "Monocyte", binaryMatrix)
 
-
-#accessibility of predicted TFs k562
-kTFAcc <- ATACCoGAPS::geneAccessibility(geneList = c("TAL1", "SP2"), peakGranges = subsetGranges, atacData = countMatrix99, genome = Homo.sapiens)
-heatmapGeneAccessibility(genePeaks = kTFAcc$TAL1, celltypes = cellTypes99, colColors = col, col = c("white", "darkgreen"))
-heatmapGeneAccessibility(genePeaks = kTFAcc$SP2, celltypes = cellTypes99, colColors = col, col = c("white", "darkgreen"))
-
-rownames(kTFAcc$TAL1)
-
-foldAccessibility(kTFAcc$TAL1, cellTypes99, "K562 Erythroleukemia", binaryMatrix)
-foldAccessibility(kTFAcc$SP2, cellTypes99, "K562 Erythroleukemia", binaryMatrix)
 
 ```
 
@@ -447,18 +447,27 @@ Higher number of patterns
 cgapsResult18Pat <- readRDS("data/SchepCoGAPSResult18Pat.rds")
 ATACCoGAPS::heatmapPatternMatrix(cgapsResult18Pat, as.factor(colnames(countMatrix99)), cellCols = col, col = viridis::magma(n=9))
 
-matchedGenes <- ATACCoGAPS::genePatternMatch(cogapsResult = cgapsResult18Pat, generanges = subsetGranges, genome = Homo.sapiens, scoreThreshold = 0.1)
+matchedGenes <- ATACCoGAPS::genePatternMatch(cogapsResult = cgapsResult18Pat, generanges = subsetGranges, genome = Homo.sapiens)
 matchedpaths <- ATACCoGAPS::pathwayMatch(matchedGenes, dPathways, p_threshold = 0.001)
+lapply(matchedpaths, function(x){x[[4]]})
 
-motifTFResults <- ATACCoGAPS::simpleMotifTFMatch(cogapsResult = cgapsResult18Pat, generanges = subsetGranges, organism = "Homo sapiens", genome = "hg19", scoreThreshold = 0.05)
+motifTFResults <- ATACCoGAPS::simpleMotifTFMatch(cogapsResult = cgapsResult18Pat, generanges = subsetGranges, organism = "Homo sapiens", genome = "hg19")
 
 motifTFResults$tfMatchSummary
 
 #cogaps run for 13 patterns
 cgapsResult13Pat <- readRDS("data/SchepCoGAPSResult13Pat.rds")
 ATACCoGAPS::heatmapPatternMatrix(cgapsResult13Pat, as.factor(colnames(countMatrix99)), cellCols = col, col = viridis::magma(n=9))
-```
 
+matchedGenes <- ATACCoGAPS::genePatternMatch(cogapsResult = cgapsResult13Pat, generanges = subsetGranges, genome = Homo.sapiens)
+matchedpaths <- ATACCoGAPS::pathwayMatch(matchedGenes, dPathways, p_threshold = 0.001)
+lapply(matchedpaths, function(x){x[[4]]})
+
+motifTFResults <- ATACCoGAPS::simpleMotifTFMatch(cogapsResult = cgapsResult13Pat, generanges = subsetGranges, organism = "Homo sapiens", genome = "hg19")
+
+motifTFResults$tfMatchSummary
+```
+Higher pattern numbers are able to distinguish LMPP cells and monocytes a bit more. Regulatory programs identified are generally robust to the change in pattern number; the patterns that seem to distinguish the same celltypes as lower pattern numbers learn the same pathways and TFs.
 
 
 
