@@ -87,12 +87,14 @@ tbx20GeneRanks <- genesRanks[which(rownames(genesRanks) %in% tbx20genes), 6]
 library(Mus.musculus)
 tbx20GA <- ATACCoGAPS::geneAccessibility(tbx20genes, atacGranges, atacMatrix, Mus.musculus)
 
-rownames(tbx20GA$Tbx2)
+lapply(tbx20GA, rownames)
 
 ATACCoGAPS::heatmapGeneAccessibility(tbx20GA$Mef2c, as.factor(colnames(atacMatrix)), colColors = c("darkorchid1", "blue"), col = c("white", "darkgreen"))
 ATACCoGAPS::heatmapGeneAccessibility(tbx20GA$`Nkx2-5`, as.factor(colnames(atacMatrix)), colColors = c("darkorchid1", "blue"), col = c("white", "darkgreen"))
 ATACCoGAPS::heatmapGeneAccessibility(tbx20GA$Tbx2, as.factor(colnames(atacMatrix)), colColors = c("darkorchid1", "blue"), col = c("white", "darkgreen"))
+heatmapGeneAccessibility(tbx20GA$Nppa, as.factor(colnames(atacMatrix)), colColors = c("darkorchid1", "blue"), col = c("white", "darkgreen"))
 
+lapply(tbx20GA, rownames)
 ```
 
 

@@ -409,19 +409,16 @@ ATACCoGAPS::cgapsPlot(motifResult, as.factor(colnames(countMatrix99)), col, ylab
 ATACCoGAPS::heatmapPatternMatrix(motifResult, as.factor(colnames(countMatrix99)), cellCols = col, col = viridis::magma(n=9))
 
 patternMarkerMotifs <- CoGAPS::patternMarkers(motifResult)
-patScores = as.data.frame(patternMarkerMotifs$PatternMarkerScores)
-motifs = rownames(patScores)
-motifPatList = vector(mode=  "list", length = ncol(patScores))
-for(i in seq(ncol(patScores))) {
-    topMotifsPat = which(patScores[,i] < 0.1)
-    motifPatList[[i]] = topMotifsPat
-}
+motifPatList <- patternMarkerMotifs$PatternMarkers
+
+TFinfo <- readRDS("data/TF_Info_all_motifs.rds") 
+TFs <- ATACCoGAPS::getTFs(motifPatList, TFinfo)
 
 #pattern 6 has strong signal for fibroblasts
-pat6MarkerMotifs <- motifs[motifPatList[[6]]]
+pat6MarkerMotifs <- motifPatList[[6]]
 
 #finding motifs in same motif list for cogaps ran by peaks
-cMotifMatch <- ATACCoGAPS::motifPatternMatch(cg99Matrix, subsetGranges, motifList, "hg19")
+cMotifMatch <- ATACCoGAPS::motifPatternMatch(cg99Matrix, subsetGranges, motifList, "hg19", scoreThreshold = 0.05)
 
 length(cMotifMatch[[4]])
 length(pat6MarkerMotifs)
@@ -429,12 +426,12 @@ length(pat6MarkerMotifs)
 intersect(pat6MarkerMotifs, cMotifMatch[[4]])
 
 #pattern4 has strong signal for GM LCLs
-pat4MarkerMotifs <- motifs[motifPatList[[4]]]
-length(pat6MarkerMotifs)
+pat4MarkerMotifs <- motifPatList[[4]]
+length(pat4MarkerMotifs)
 intersect(pat4MarkerMotifs, cMotifMatch[[3]])
 
 pairwise.wilcox.test(getSampleFactors(motifResult)[,2], as.factor(colnames(countMatrix99)))#pattern2 is most strongly associated to H1ESCs
-pat2MarkerMotifs <- motifs[motifPatList[[2]]]
+pat2MarkerMotifs <- motifPatList[[2]]
 length(pat2MarkerMotifs)
 intersect(pat2MarkerMotifs, cMotifMatch[[5]])
 
