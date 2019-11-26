@@ -237,15 +237,19 @@ lapply(mnTFAcc, ATACCoGAPS::foldAccessibility, cellTypes99, "Monocyte", binaryMa
 
 Classifying cells using the pattern matrix and comparing to ground truth
 ```{r}
+#number of each cell type
 summary(as.factor(colnames(countMatrix99)))
 
+#get patternMarker statistic for the Pattern Matrix
 pm <- CoGAPS::patternMarkers(cg99Matrix, axis = 2)
 patMarkers <- pm$PatternMarkers
 
 lapply(patMarkers, length)
 
+#pattern Marker ranks
 patRanks <- pm$PatternMarkerRanks
 
+#apply pattern Marker cell classifications
 pmcc <- ATACCoGAPS::patternMarkerCellClassifier(cg99Matrix)
 
 pMatrix <- pmcc$predictionMatrix
@@ -253,6 +257,15 @@ cellClass <- pmcc$cellClassifier
 
 cellTypes <- colnames(countMatrix99)
 
+#determine the cell line most significantly associated with each pattern using a wilcoxon rank sum test
+#get PatternMatrix
+patternMatrix = getSampleFactors(cg99Matrix)
+#paired wilcoxon rank sum test
+apply(patternMatrix, 2, pairwise.wilcox.test, g = cellTypes99)
+#plot patterns again for refernece
+ATACCoGAPS::cgapsPlot(cg99Matrix, cellTypes99, col)
+
+#test classifications of significant cell types to pattern by finding ROC AUC
 Kclass <- rep(0, length(cellTypes))
 Kclass[which(cellTypes == "K562")] <- 1
 Kroc <- pROC::roc(Kclass, pMatrix[,1])
@@ -298,6 +311,7 @@ aucVals <- unlist(lapply(rocList, pROC::auc))
 CellFct <- as.factor(seq(length(aucVals)))
 CellFct <- plyr::mapvalues(CellFct, from = as.character(CellFct), to = c("K562 Erythroleukemia", "TF1 Erythroblast", "GM LCLS", "Fibroblasts", "H1ESCs", "HL60 Leukemia", "Monocyte"))
 
+#plot AUC vals
 plotData <- data.frame(AUC = aucVals, Pattern = seq(length(aucVals)), AnnotatedCellType = CellFct)
 
 library(ggplot2)
