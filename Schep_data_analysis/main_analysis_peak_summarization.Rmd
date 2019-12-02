@@ -261,11 +261,11 @@ cellTypes <- colnames(countMatrix99)
 #get PatternMatrix
 patternMatrix = getSampleFactors(cg99Matrix)
 #paired wilcoxon rank sum test
-apply(patternMatrix, 2, pairwise.wilcox.test, g = cellTypes99)
+apply(patternMatrix, 2, pairwise.wilcox.test, g = cellTypes)
 #plot patterns again for refernece
-ATACCoGAPS::cgapsPlot(cg99Matrix, cellTypes99, col)
+ATACCoGAPS::cgapsPlot(cg99Matrix, cellTypes, col)
 
-#test classifications of significant cell types to pattern by finding ROC AUC
+#test classifications of significant cell types to pattern by finding ROC AUC for each cell line
 Kclass <- rep(0, length(cellTypes))
 Kclass[which(cellTypes == "K562")] <- 1
 Kroc <- pROC::roc(Kclass, pMatrix[,1])
@@ -349,6 +349,26 @@ pat7class <- rep(0, length(cellTypes))
 pat7class[c(which(cellTypes == "PB1022"), which(cellTypes == "LMPP"), which(cellTypes == "SU070"), which(cellTypes == "SU353"))] <- 1
 pat7roc <- pROC::roc(pat7class, pMatrix[,7])
 pROC::auc(pat7roc)
+
+#adjusted Rand Index for single evaluation of clustering accuracy
+#convert cell types to numeric values based on pattern association
+cellTypes[which(cellTypes == "K562")] <- 1
+cellTypes[which(cellTypes == "TF1")] <- 2
+cellTypes[c(which(cellTypes=="GM"), which(cellTypes=="GM12878"),
+                             which(cellTypes=="GM12878rep2"))] <- 3
+cellTypes[which(cellTypes == "BJ")] <- 4
+cellTypes[which(cellTypes == "H1ESC")] <- 5
+cellTypes[which(cellTypes == "HL60")] <- 6
+cellTypes[which(cellTypes == "PB1022")] <- 7
+
+
+mclust::adjustedRandIndex(cellClass, cellTypes)
+
+#if all celltypes most strongly associated with pattern 7 are assigned to pattern 7 
+cellTypes[c(which(cellTypes=="LMPP"), which(cellTypes=="SU070"),
+                             which(cellTypes=="SU353"))] <- 7
+
+mclust::adjustedRandIndex(cellClass, cellTypes)
 
 ```
 
@@ -477,6 +497,26 @@ lapply(matchedpaths, function(x){x[[4]]})
 motifTFResults <- ATACCoGAPS::simpleMotifTFMatch(cogapsResult = cgapsResult13Pat, generanges = subsetGranges, organism = "Homo sapiens", genome = "hg19")
 
 motifTFResults$tfMatchSummary
+
+#ARI
+pmcc <- ATACCoGAPS::patternMarkerCellClassifier(cgapsResult13Pat)
+
+pMatrix <- pmcc$predictionMatrix
+cellClass <- pmcc$cellClassifier
+
+cellTypes <- colnames(countMatrix99)
+
+cellTypes[which(cellTypes == "PB1022")] <- 1
+cellTypes[which(cellTypes == "H1ESC")] <- 2
+cellTypes[which(cellTypes == "K562")] <- 3
+cellTypes[which(cellTypes == "TF1")] <- 5
+cellTypes[which(cellTypes == "BJ")] <- 7
+cellTypes[which(cellTypes == "HL60")] <- 9
+cellTypes[which(cellTypes == "LMPP")] <- 10
+cellTypes[c(which(cellTypes == "GM"), which(cellTypes == "GM12878"),
+            which(cellTypes == "GM12878rep2"))] <- 12
+
+mclust::adjustedRandIndex(cellClass, cellTypes)
 ```
 Higher pattern numbers are able to distinguish LMPP cells and monocytes a bit more. Regulatory programs identified are generally robust to the change in pattern number; the patterns that seem to distinguish the same celltypes as lower pattern numbers learn the same pathways and TFs.
 
