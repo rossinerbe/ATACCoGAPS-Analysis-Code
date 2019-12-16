@@ -1,0 +1,11 @@
+---
+title: "TF Enrichment"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r , echo=FALSE}
+mtfResults = readRDS("data/motifTFResults.rds")
+mtfResults
+```

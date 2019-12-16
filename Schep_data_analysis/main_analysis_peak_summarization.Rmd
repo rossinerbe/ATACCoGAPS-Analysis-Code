@@ -150,7 +150,12 @@ saveRDS(dPathways, "data/msigdbrHallmarkPathways10_2019.rds")
 #determine gene overlap between pathways and mathced genes
 matchedPathways = ATACCoGAPS::pathwayMatch(matchedGenes, dPathways, p_threshold = 0.001)
 
-lapply(matchedPathways, function(x){x[4]})
+pathwayTables = lapply(matchedPathways, function(x){x[4]})
+names(pathwayTables) = unlist(lapply(c(1:7), function(x) {paste("Pattern", x)}))
+pathwayTables
+
+#saving to create output table in separate file
+saveRDS(pathwayTables, "data/PT.rds")
 
 #comparing pathways found at different patternMarker score thresholds
 matchedGenes0.03 <- ATACCoGAPS::genePatternMatch(cogapsResult = cg99Matrix, generanges = subsetGranges, genome = Homo.sapiens, scoreThreshold = 0.03)
@@ -187,7 +192,11 @@ Find potential TF bindings
 ```{r}
 motifTFResults <- ATACCoGAPS::simpleMotifTFMatch(cogapsResult = cg99Matrix, generanges = subsetGranges, organism = "Homo sapiens", genome = "hg19")
 
-motifTFResults$tfMatchSummary
+mtfResults = motifTFResults$tfMatchSummary
+names(mtfResults) = unlist(lapply(c(1:7), function(x) {paste("Pattern", x)}))
+mtfResults
+#save motifTF enrichment
+saveRDS(mtfResults, "data/motifTFResults.rds")
 
 #other score thresholds
 motifTFResults0.1 <- ATACCoGAPS::simpleMotifTFMatch(cogapsResult = cg99Matrix, generanges = subsetGranges, organism = "Homo sapiens", genome = "hg19", scoreThreshold = 0.1)

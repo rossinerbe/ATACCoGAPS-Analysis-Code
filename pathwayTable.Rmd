@@ -1,0 +1,11 @@
+---
+title: "CoGAPS Identified Pathways"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r, echo=FALSE}
+pathwayTables = readRDS("data/PT.rds")
+pathwayTables
+```

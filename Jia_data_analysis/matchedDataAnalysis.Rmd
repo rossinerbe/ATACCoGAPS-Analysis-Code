@@ -21,7 +21,10 @@ ATACCoGAPS::heatmapPatternMatrix(rnaResult, as.factor(colnames(rnaMatrix)), col 
 
 ```{r}
 mouse = biomaRt::useMart("ensembl", dataset = "mmusculus_gene_ensembl")
-rna_seq_genes = biomaRt::getBM(attributes=c("mgi_symbol", "ensembl_gene_id") , filters="ensembl_gene_id", values =rownames(rnaMatrix),mart=mouse)
+rna_seq_genes = biomaRt::getBM(attributes=c("mgi_symbol", "ensembl_gene_id"), mart=mouse)
+saveRDS(rna_seq_genes, "data/ensemblIDToSymbol.rds")
+# version used for paper saved in the data folder and can be loaded here to ensure reproducibility
+# rna_seq_genes = readRDS("data/ensemblIDToSymbol.rds")
 
 nosymbol = setdiff(rownames(rnaMatrix), rna_seq_genes[,2])
 rminds = c()
@@ -45,10 +48,11 @@ tfInfo = readRDS("data/mouse_TF_info.rds")
 
 atacGranges = ATACCoGAPS::peaksToGRanges(rownames(atacMatrix), "-")
 
-#thresholding for computational time, we have shown TFs found are robust to this thresholding (see Schep data analysis)
+#thresholding to save computational time, we have shown TFs found are robust to this thresholding (see Schep data analysis)
 patternMotifs = ATACCoGAPS::motifPatternMatch(atacResult, atacGranges, motiflist, "mm10", 0.1)
 TFs = ATACCoGAPS::getTFs(patternMotifs, tfInfo)
 
+#load genes known to be regulated by TFs; downloaded from the TRRUST database
 load("data/regInfo.rda")
 
 TFGenes = ATACCoGAPS::findRegulatoryNetworks(TFs, mouseRegNets)
@@ -64,6 +68,7 @@ for(i in seq(nrow(genesRanks))) {
 
 RNAvalidate <- ATACCoGAPS::RNAseqTFValidation(TFGenes = TFGenes, RNACoGAPSResult = genesRanks, RNAPatternSet = c(3,6), ATACPatternSet = c(1,4,6), matrix = TRUE)
 
+#plot qqplot of p-values
 pv.qqplot = function(pvector, main=NULL, ...) {
   o = -log10(sort(pvector,decreasing=F))
   e = -log10( 1:length(o)/length(o) )
@@ -79,8 +84,13 @@ pv.qqplot = function(pvector, main=NULL, ...) {
 
 pv.qqplot(RNAvalidate[[4]]$pval)
 
+#check multiple testing significance
+p.adjust(RNAvalidate[[4]]$pval, method = "BH") #only Tbx20 is MT-sig
+
+#genes tbx20 is known to regulate
 tbx20genes <- c("Nppa", "Nkx2-5", "Tbx2" ,"Mef2c")
 
+#find ranks of tbx20 regulated genes as determined by PatternMarker statistic applied to RNA CoGAPS result
 tbx20GeneRanks <- genesRanks[which(rownames(genesRanks) %in% tbx20genes), 6]
 
 
@@ -110,5 +120,121 @@ ATACCoGAPS::heatmapGeneAccessibility(pat6GA$Obscn, as.factor(colnames(atacMatrix
 ATACCoGAPS::heatmapGeneAccessibility(pat6GA$C330021F23Rik, as.factor(colnames(atacMatrix)))
 ATACCoGAPS::heatmapGeneAccessibility(pat6GA$Cavin3, as.factor(colnames(atacMatrix)))
 ```
+
+transfer learning with projectR
+```{r}
+
+geneRanges = function(txdb) {
+  #get granges with gene id metadata
+  g = GenomicFeatures::genes(txdb, columns="ENSEMBL")
+  col = mcols(g)[["ENSEMBL"]]
+  #create GRanges without metadata to make gene ids character vector
+  genes = GenomicRanges::granges(g)[rep(seq_along(g), elementNROWS(col))]
+  mcols(genes)[["ENSEMBL"]] = as.character(unlist(col))
+  genes
+}
+
+library(Mus.musculus)
+
+genes <- geneRanges(Mus.musculus)
+ids <- mcols(genes)[["ENSEMBL"]]
+
+#remove duplicates where the same ENSEMBL id is used for different genes
+ids <- ids[-which(ids %in% ids[which(duplicated(ids))])]
+
+overindsID <- which(ids %in% rownames(rnaMatrix))
+overindsRNA <- which(rownames(rnaMatrix) %in% ids)
+rnaMatrix3 <- rnaMatrix[overindsRNA,]
+ids2 <- ids[overindsID]
+
+
+orderInds = vector("numeric", length(ids2))
+for(i in seq_along(rownames(rnaMatrix3))) {
+  ind = which(ids2 == rownames(rnaMatrix3)[i])
+  orderInds[i] = ind
+  if(length(ind)>1){print(i)}
+}
+
+genes2 = genes[overinds]
+genes2 = genes2[orderInds]
+
+
+
+  olaps <- vector("list", length(genes2))
+  toRemove <- NULL
+  for(i in seq_along(genes2)) {
+    olap <- GenomicRanges::findOverlaps(genes2[i], atacGranges,
+                                        ignore.strand = TRUE)
+    olapInds <- subjectHits(olap)
+    if(length(olapInds) == 0) {
+      print(paste("No overlapping peaks with", mcols(genes2)[["ENSEMBL"]][i]))
+      toRemove <- c(toRemove, i)
+    }
+    else{
+      olaps[[i]] <- olapInds
+    }
+  }
+
+    
+olaps[[1]]
+
+#RNA to ATAC
+olappingPeaks = unlist(olaps)
+dupOP = olappingPeaks[which(duplicated(olappingPeaks))]
+for(i in seq_along(olaps)){
+  ol = olaps[[i]]
+  if(length(which(ol %in% dupOP)) != 0) {
+    if(length(ol[-which(ol %in% dupOP)]) == 0){
+      olaps[[i]] = NA
+    }
+    else{
+    olaps[[i]] = ol[-which(ol %in% dupOP)]
+    }
+  }
+}
+
+sum(duplicated(unlist(olaps))) #all are NA values for genes with no overlapping peaks
+
+geneAggregateAtacMatrix = matrix(nrow = length(olaps), ncol = ncol(atacMatrix))
+rownames(geneAggregateAtacMatrix) = mcols(genes2)[["ENSEMBL"]]
+
+rowsToRemove = c()
+for(i in seq(nrow(geneAggregateAtacMatrix))) {
+  peaks = olaps[[i]]
+  if(is.null(peaks)) {
+    rowsToRemove = c(rowsToRemove, i)
+  }
+  else if(is.na(peaks)){
+    rowsToRemove = c(rowsToRemove, i)
+  }
+  else if(length(peaks) == 1) {
+    geneAggregateAtacMatrix[i,] = atacMatrix[peaks,]
+  }
+  else {
+    agg = c()
+    for(j in 2:length(peaks)) {
+      if(j == 2){
+        agg = unlist(atacMatrix[peaks[j-1],], use.names = F) + unlist(atacMatrix[peaks[j],], use.names = F)
+      }
+      else{
+        agg = agg + atacMatrix[peaks[j],]
+      }
+    }
+    geneAggregateAtacMatrix[i,] = agg
+  }
+}
+
+geneAggregateAtacMatrix[1:5, 1:5]
+
+
+geneAggATACMatrix2 = geneAggregateAtacMatrix[-rowsToRemove,]
+
+
+#projectR
+pR = projectR::projectR(geneAggATACMatrix2, rnaResult, rownames(geneAggATACMatrix2), rownames(rnaMatrix), full = T)
+
+ATACCoGAPS::cgapsPlot(t(pR$projection), as.factor(colnames(atacMatrix)), matrix = T)
+```
+
 
 
