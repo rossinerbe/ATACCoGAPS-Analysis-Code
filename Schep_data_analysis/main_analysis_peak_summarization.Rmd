@@ -104,18 +104,26 @@ cg98Matrix = readRDS("data/countMatrix98_result.rds")
 
 Plot the pattern matrix 
 ```{r}
+#vector of colors to plot cell types by
 col <- c("salmon", 'aquamarine', 'aquamarine3', "aquamarine4", "darkorchid1", 'limegreen', "magenta", "orangered", "darkgreen", "darkred", "red3", "darkorange")
+
+#colors to plot patterns by
 rowColors <- c("magenta", "darkorange", "aquamarine3", "salmon", "darkorchid1", "grey", "darkgreen")
 
+#map factor of celltypes to more descriptive names
 cellTypes <- plyr::mapvalues(as.factor(cellTypes), from = c("BJ","GM","GM12878","GM12878rep2","H1ESC","HL60","K562","LMPP","PB1022"   ,"SU070","SU353","TF1"), to = c("Fibroblasts", "GMLCL 1","GMLCL 2 Rep1","GMLCL 2 Rep2","H1ESCs","HL60 Leukemia","K562 Erythroleukemia","LMPP","Monocyte","AML Patient 070","AML Patient 353","TF1 Erythroblast"))
 
+#get cell types for filtered data
 cellTypes99 <- colnames(countMatrix99)
 cellTypes99 <- plyr::mapvalues(as.factor(cellTypes99), from = c("BJ","GM","GM12878","GM12878rep2","H1ESC","HL60","K562","LMPP","PB1022"   ,"SU070","SU353","TF1"), to = c("Fibroblasts", "GMLCL 1","GMLCL 2 Rep1","GMLCL 2 Rep2","H1ESCs","HL60 Leukemia","K562 Erythroleukemia","LMPP","Monocyte","AML Patient 070","AML Patient 353","TF1 Erythroblast"))
 
+#plot each pattern individually
 ATACCoGAPS::cgapsPlot(cgFullMatrix, as.factor(cellTypes), cols= col, ylab = "Pattern Weight")
 
+#plot all patterns together in a heatmap
 ATACCoGAPS::heatmapPatternMatrix(cgFullMatrix, as.factor(cellTypes), cellCols = col, col = viridis::magma(n = 9))
 
+#repeat for filtered data
 ATACCoGAPS::cgapsPlot(cg99Matrix, cellTypes99, cols= col, ylab = "Pattern Weight")
 
 ATACCoGAPS::heatmapPatternMatrix(cg99Matrix, cellTypes99, cellCols = col, rowColors = rowColors, col = viridis::magma(n=9))
@@ -150,6 +158,7 @@ saveRDS(dPathways, "data/msigdbrHallmarkPathways10_2019.rds")
 #determine gene overlap between pathways and mathced genes
 matchedPathways = ATACCoGAPS::pathwayMatch(matchedGenes, dPathways, p_threshold = 0.001)
 
+#get summary table of pathways
 pathwayTables = lapply(matchedPathways, function(x){x[4]})
 names(pathwayTables) = unlist(lapply(c(1:7), function(x) {paste("Pattern", x)}))
 pathwayTables
@@ -190,8 +199,10 @@ lapply(matchedPathways1, function(x){x[4]})
 
 Find potential TF bindings
 ```{r}
+#match motifs to peaks and find TF binding for those peaks
 motifTFResults <- ATACCoGAPS::simpleMotifTFMatch(cogapsResult = cg99Matrix, generanges = subsetGranges, organism = "Homo sapiens", genome = "hg19")
 
+#get summary results
 mtfResults = motifTFResults$tfMatchSummary
 names(mtfResults) = unlist(lapply(c(1:7), function(x) {paste("Pattern", x)}))
 mtfResults
@@ -260,6 +271,7 @@ patRanks <- pm$PatternMarkerRanks
 
 #apply pattern Marker cell classifications
 pmcc <- ATACCoGAPS::patternMarkerCellClassifier(cg99Matrix)
+
 
 pMatrix <- pmcc$predictionMatrix
 cellClass <- pmcc$cellClassifier
@@ -349,8 +361,10 @@ sortClasses <- combinedClasses[order(combinedClasses$cellClasses),]
 
 col <- c("magenta", "darkorange", 'aquamarine', 'aquamarine3', "aquamarine4", "salmon", "darkorchid1", 'limegreen', "orangered", "darkgreen", "darkred", "red3")
 
+#plot heatmap of the pattern matrix ordered by PatternMarker classfication
 ATACCoGAPS::heatmapPatternMatrix(cg99Matrix, sortClasses$cellType, cellCols = col, col = viridis::magma(n=9), sort = FALSE)
 
+#plot individual patterns
 ATACCoGAPS::cgapsPlot(cg99Matrix, cfct2, col)
 
 #pattern 7 with LMPP and AML included
@@ -370,7 +384,7 @@ cellTypes[which(cellTypes == "H1ESC")] <- 5
 cellTypes[which(cellTypes == "HL60")] <- 6
 cellTypes[which(cellTypes == "PB1022")] <- 7
 
-
+#get ARI
 mclust::adjustedRandIndex(cellClass, cellTypes)
 
 #if all celltypes most strongly associated with pattern 7 are assigned to pattern 7 
@@ -424,6 +438,7 @@ mean(pRPvals[3, which(BuenrostroCellTypes == "pDC")])
 pairwise.wilcox.test(projectRResults$projection[1,], BuenrostroCellTypes, p.adjust.method = "BH")
 mean(pRPvals[1, which(BuenrostroCellTypes == "MEP")])
 
+#boxplot of pattern 7 for pattern weight by cell type; helps visualize the difference in association to the pattern for monocytes
 pr <- projectRResults$projection
 p7 <- pr[7,]
 boxplot(p7 ~ as.factor(BuenrostroCellTypes), xlab = "Cell Type", ylab = "Pattern Weight")
@@ -441,19 +456,24 @@ motifsSchep <- ATACCoGAPS::motifSummarization(motifList = motifList, scATACData 
 #convert to log space, as some motifs have high counts
 logMotifs <- log1p(motifsSchep)
 
+#CoGAPS parameters
 params <- CogapsParams(nPatterns=9, nIterations=10000, seed=42, singleCell=TRUE, sparseOptimization=TRUE, distributed="genome-wide", geneNames=TFBSTools::ID(motifList), sampleNames=colnames(countMatrix99))
 params <- setDistributedParams(params, nSets=2)
 
 saveRDS(params, file="data/motifs_9pat_10kIt_4sets.rds")
 
-#load CoGAPS result
+#load CoGAPS result; algorithm was run on AWS cloud
 motifResult = readRDS("data/SchepByMotifsResult.rds")
+
+#plot pattern MAtrix
 ATACCoGAPS::cgapsPlot(motifResult, as.factor(colnames(countMatrix99)), col, ylab = "Pattern Weight")
 ATACCoGAPS::heatmapPatternMatrix(motifResult, as.factor(colnames(countMatrix99)), cellCols = col, col = viridis::magma(n=9))
 
+#get patternMarker motifs
 patternMarkerMotifs <- CoGAPS::patternMarkers(motifResult)
 motifPatList <- patternMarkerMotifs$PatternMarkers
 
+#find TFs corresponding to patternMarker motifs
 TFinfo <- readRDS("data/TF_Info_all_motifs.rds") 
 TFs <- ATACCoGAPS::getTFs(motifPatList, TFinfo)
 
@@ -485,12 +505,16 @@ Higher number of patterns
 ```{r}
 #cogaps run for 18 patterns
 cgapsResult18Pat <- readRDS("data/SchepCoGAPSResult18Pat.rds")
+
+#plot patternMatrix 
 ATACCoGAPS::heatmapPatternMatrix(cgapsResult18Pat, as.factor(colnames(countMatrix99)), cellCols = col, col = viridis::magma(n=9))
 
+#find associated pathways
 matchedGenes <- ATACCoGAPS::genePatternMatch(cogapsResult = cgapsResult18Pat, generanges = subsetGranges, genome = Homo.sapiens)
 matchedpaths <- ATACCoGAPS::pathwayMatch(matchedGenes, dPathways, p_threshold = 0.001)
 lapply(matchedpaths, function(x){x[[4]]})
 
+#find associated TFs
 motifTFResults <- ATACCoGAPS::simpleMotifTFMatch(cogapsResult = cgapsResult18Pat, generanges = subsetGranges, organism = "Homo sapiens", genome = "hg19")
 
 motifTFResults$tfMatchSummary
@@ -528,12 +552,3 @@ cellTypes[c(which(cellTypes == "GM"), which(cellTypes == "GM12878"),
 mclust::adjustedRandIndex(cellClass, cellTypes)
 ```
 Higher pattern numbers are able to distinguish LMPP cells and monocytes a bit more. Regulatory programs identified are generally robust to the change in pattern number; the patterns that seem to distinguish the same celltypes as lower pattern numbers learn the same pathways and TFs.
-
-
-
-
-
-
-
-
-

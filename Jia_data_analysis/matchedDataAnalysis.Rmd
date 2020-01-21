@@ -8,9 +8,11 @@ editor_options:
 ```{r}
 atacMatrix <- readRDS("data/matchedATACMatrix.rds")
 rnaMatrix <- readRDS("data/matchedRNAMatrix.rds")
-atacResult <- readRDS("data/matchedATACResult.rds")
-rnaResult <- readRDS("data/matchedRNAResult.rds")
+#CoGAPS results generated ob Batch servers of the AWS cloud
+atacResult <- readRDS("data/matchedATACResult.rds") #ATAC result was run to find 6 patterns, but the algorithm found an optimum solution at 7 patterns
+rnaResult <- readRDS("data/matchedRNAResult.rds") #ran for 6 patterns
 
+#plot pattern matrix
 ATACCoGAPS::cgapsPlot(atacResult, as.factor(colnames(atacMatrix)))
 ATACCoGAPS::cgapsPlot(rnaResult, as.factor(colnames(rnaMatrix)))
 
@@ -20,12 +22,14 @@ ATACCoGAPS::heatmapPatternMatrix(rnaResult, as.factor(colnames(rnaMatrix)), col 
 ```
 
 ```{r}
+#get gene symbol to ensembl correspondence for use of RNA-seq data with the fgsea package
 mouse = biomaRt::useMart("ensembl", dataset = "mmusculus_gene_ensembl")
 rna_seq_genes = biomaRt::getBM(attributes=c("mgi_symbol", "ensembl_gene_id"), mart=mouse)
 saveRDS(rna_seq_genes, "data/ensemblIDToSymbol.rds")
 # version used for paper saved in the data folder and can be loaded here to ensure reproducibility
 # rna_seq_genes = readRDS("data/ensemblIDToSymbol.rds")
 
+#convert to gene symbols
 nosymbol = setdiff(rownames(rnaMatrix), rna_seq_genes[,2])
 rminds = c()
 for(i in 1:length(nosymbol)){
@@ -43,20 +47,26 @@ for(i in 1:nrow(rnaMatrix2)) {
   }
 }
 
+#get DNA motifs with possible TF bindings
 motiflist = readRDS("data/ms_motiflist.rds")
 tfInfo = readRDS("data/mouse_TF_info.rds")
 
+#get Genomic ranges objects corresponding to ATAC peaks
 atacGranges = ATACCoGAPS::peaksToGRanges(rownames(atacMatrix), "-")
 
+#find motifs in the accesible peaks associated with each pattern
 #thresholding to save computational time, we have shown TFs found are robust to this thresholding (see Schep data analysis)
 patternMotifs = ATACCoGAPS::motifPatternMatch(atacResult, atacGranges, motiflist, "mm10", 0.1)
+#TF correspondence
 TFs = ATACCoGAPS::getTFs(patternMotifs, tfInfo)
 
-#load genes known to be regulated by TFs; downloaded from the TRRUST database
+#load genes known to be regulated by matched TFs; downloaded from the TRRUST database
 load("data/regInfo.rda")
 
+#get regulated gene networks object for each TF
 TFGenes = ATACCoGAPS::findRegulatoryNetworks(TFs, mouseRegNets)
 
+#match symbols to CoGAPS RNA result
 patMarkers = CoGAPS::patternMarkers(rnaResult)
 genesRanks =patMarkers$PatternMarkerRanks
 for(i in seq(nrow(genesRanks))) {
@@ -66,7 +76,10 @@ for(i in seq(nrow(genesRanks))) {
   }
 }  
 
-RNAvalidate <- ATACCoGAPS::RNAseqTFValidation(TFGenes = TFGenes, RNACoGAPSResult = genesRanks, RNAPatternSet = c(3,6), ATACPatternSet = c(1,4,6), matrix = TRUE)
+
+#compare RNA CoGAPS gene rankings to TF predictions from ATAC CoGAPS using GSEA
+#pattern 6 has the most general signal for RNA, and patterns 1,2, and 6 all have similarly strong general signal
+RNAvalidate <- ATACCoGAPS::RNAseqTFValidation(TFGenes = TFGenes, RNACoGAPSResult = genesRanks, RNAPatternSet = c(6), ATACPatternSet = c(1, 2, 6, 7), matrix = TRUE)
 
 #plot qqplot of p-values
 pv.qqplot = function(pvector, main=NULL, ...) {
@@ -78,17 +91,16 @@ pv.qqplot = function(pvector, main=NULL, ...) {
        xlim=c(0,max(e)), ylim=c(0,max(o)))
   #45 degree line
   abline(0,1, col='red')
-  #bonf. cutoff line
-  abline(-log10(0.05/length(pvector)), 0)
+  # #bonf. cutoff line
+  # abline(-log10(0.05/length(pvector)), 0)
 }
 
-pv.qqplot(RNAvalidate[[4]]$pval)
+#RNA 6 to ATAC 2 qqplot of pvalues
+pv.qqplot(RNAvalidate[[3]]$pval)
 
-#check multiple testing significance
-p.adjust(RNAvalidate[[4]]$pval, method = "BH") #only Tbx20 is MT-sig
 
 #genes tbx20 is known to regulate
-tbx20genes <- c("Nppa", "Nkx2-5", "Tbx2" ,"Mef2c")
+tbx20genes <- mouseRegNets$Tbx20
 
 #find ranks of tbx20 regulated genes as determined by PatternMarker statistic applied to RNA CoGAPS result
 tbx20GeneRanks <- genesRanks[which(rownames(genesRanks) %in% tbx20genes), 6]
@@ -99,27 +111,31 @@ tbx20GA <- ATACCoGAPS::geneAccessibility(tbx20genes, atacGranges, atacMatrix, Mu
 
 lapply(tbx20GA, rownames)
 
+#plot accessibility of each gene
 ATACCoGAPS::heatmapGeneAccessibility(tbx20GA$Mef2c, as.factor(colnames(atacMatrix)), colColors = c("darkorchid1", "blue"), col = c("white", "darkgreen"))
 ATACCoGAPS::heatmapGeneAccessibility(tbx20GA$`Nkx2-5`, as.factor(colnames(atacMatrix)), colColors = c("darkorchid1", "blue"), col = c("white", "darkgreen"))
 ATACCoGAPS::heatmapGeneAccessibility(tbx20GA$Tbx2, as.factor(colnames(atacMatrix)), colColors = c("darkorchid1", "blue"), col = c("white", "darkgreen"))
 heatmapGeneAccessibility(tbx20GA$Nppa, as.factor(colnames(atacMatrix)), colColors = c("darkorchid1", "blue"), col = c("white", "darkgreen"))
 
-lapply(tbx20GA, rownames)
+#fold accessibility
+binaryATAC <- (atacMatrix > 0) + 0
+ATACCoGAPS::foldAccessibility(tbx20GA$Mef2c, factor(rep(1, ncol(atacMatrix))), cellType = 1, binaryATAC)
+ATACCoGAPS::foldAccessibility(tbx20GA$`Nkx2-5`, factor(rep(1, ncol(atacMatrix))), cellType = 1, binaryATAC)
+ATACCoGAPS::foldAccessibility(tbx20GA$Tbx2, factor(rep(1, ncol(atacMatrix))), cellType = 1, binaryATAC)
+ATACCoGAPS::foldAccessibility(tbx20GA$Nppa, factor(rep(1, ncol(atacMatrix))), cellType = 1, binaryATAC)
+
+#just TSS overlapping peak of Tbx2
+ATACCoGAPS::foldAccessibility(tbx20GA$Tbx2[1,], factor(rep(1, ncol(atacMatrix))), cellType = 1, binaryATAC)
+
+#Hnf4a
+Hnf4agenes <- mouseRegNets$Hnf4a
+hnf4aGeneRanks <- genesRanks[which(rownames(genesRanks) %in% Hnf4agenes), 6]
+
+hnf4aGA <- ATACCoGAPS::geneAccessibility(Hnf4agenes, atacGranges, atacMatrix, Mus.musculus)
+
+ATACCoGAPS::foldAccessibility(hnf4aGA$Cebpa, cellTypeList = factor(rep(1, ncol(atacMatrix))), cellType = 1, binaryMatrix = binaryATAC)
 ```
 
-
-```{r}
-pat6GeneRanks <- genesRanks[,6]
-topPat6Genes <- names(pat6GeneRanks[which(pat6GeneRanks %in% c(1:5))])
-
-pat6GA <- ATACCoGAPS::geneAccessibility(topPat6Genes, atacGranges, atacMatrix, Mus.musculus)
-
-ATACCoGAPS::heatmapGeneAccessibility(pat6GA$Klhl6, as.factor(colnames(atacMatrix)), colColors = c("darkorchid1", "blue"), col = c("white", "darkgreen"))
-ATACCoGAPS::heatmapGeneAccessibility(pat6GA$Kcng2, as.factor(colnames(atacMatrix)), colColors = c("darkorchid1", "blue"), col = c("white", "darkgreen"))
-ATACCoGAPS::heatmapGeneAccessibility(pat6GA$Obscn, as.factor(colnames(atacMatrix)))
-ATACCoGAPS::heatmapGeneAccessibility(pat6GA$C330021F23Rik, as.factor(colnames(atacMatrix)))
-ATACCoGAPS::heatmapGeneAccessibility(pat6GA$Cavin3, as.factor(colnames(atacMatrix)))
-```
 
 transfer learning with projectR
 ```{r}
@@ -237,4 +253,25 @@ ATACCoGAPS::cgapsPlot(t(pR$projection), as.factor(colnames(atacMatrix)), matrix 
 ```
 
 
+Examine the PatternMarker gene to PatternMarkerPeak gene correspondence
+```{r}
+RNAPMs = patternMarkers(rnaResult)$PatternMarkers
+RNAPMsSymbol = lapply(RNAPMs, function(x){
+  for(i in seq_along(x)) {
+    ind = which(rna_seq_genes$ensembl_gene_id == x[i])
+    if(length(ind) == 1){
+    x[i] = rna_seq_genes$mgi_symbol[ind]
+    }
+  }
+  return(x)
+})
+
+source('genePeakMatchingv2.R')
+ATACPMGenes = genePatternMatch(atacResult, atacGranges, genome = Mus.musculus)
+
+ATACPat7Genes = ATACPMGenes[[7]]
+RNAPat6Genes = RNAPMsSymbol[[6]]
+
+length(intersect(ATACPat7Genes, RNAPat6Genes))
+```
 

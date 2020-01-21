@@ -1,0 +1,84 @@
+---
+title: "cardiac scATAC scRNA"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+library(SingleCellExperiment)
+#downloaded from https://github.com/loosolab/cardiac-progenitors
+load("scData_filtered_2.Rda")
+atac_counts = counts(scData_filtered)
+atac_matrix = as.matrix(atac_counts)
+colnames(atac_counts)[1:100]
+
+#get peak widths
+rd = rowData(scData_filtered)
+widths = unlist(rd[,3]) - unlist(rd[,4])
+widths2 = unlist(lapply(widths, function(x) {
+  if(x < 0) {x*(-1)}
+  else{x}
+}))
+
+max(widths2)
+
+wNormATACMatrix = atac_matrix
+
+#normalize by width
+wNormATACMatrix = apply(atac_matrix, 2, function(x) {
+  x/widths2
+})
+
+#apply scaling factor
+wNormATACMatrix = wNormATACMatrix*100
+
+#knit peak info for single rowname values
+peaks = unlist(apply(rd, 1, function(x){
+  paste(x[2], x[3], x[4], sep = "-")
+}))
+
+
+rownames(wNormATACMatrix) = peaks
+
+#making atac cellnames usable for grouping
+atac_cellnames = colnames(wNormATACMatrix)
+atac_cellIDs = c()
+for(i in 1:length(atac_cellnames)){
+  tmpID = stringr::str_sub(atac_cellnames[i], 1, 4)
+  atac_cellIDs = c(atac_cellIDs, tmpID)
+}
+
+colnames(wNormATACMatrix) = atac_cellIDs
+
+saveRDS(wNormATACMatrix, "data/matchedATACMatrix.rds")
+
+library(scater)
+#downloaded from https://github.com/loosolab/cardiac-progenitors
+load("c1_subset.Rdata")
+rna_counts = exprs(c1_subset)
+colnames(rna_counts)[1:100]
+```
+
+Filter RNA-seq data down to overlapping cell types
+```{r}
+cells = c()
+for(i in 1:length(colnames(rna_counts))){
+  tmp = str_sub(colnames(rna_counts)[i], start = 13, end = 21)
+  cells = c(cells, tmp)
+}
+
+colnames(rna_counts) = cells
+matched_rna = rna_counts[,which(cells == "isl1.e8.5" | cells == "isl1.e9.5")]
+
+```
+
+filter by sparsity
+```{r}
+atac_sub = ATACCoGAPS::dataSubsetBySparsity(atac_matrix, colnames(atac_counts), peaks) #no filtering required
+
+rna_sub = ATACCoGAPS::dataSubsetBySparsity(matched_rna, colnames(matched_rna), rownames(matched_rna))
+count_sub = rna_sub$subset_data
+saveRDS(count_sub, "data/matchedRNAMatrix.rds")
+
+```
