@@ -266,8 +266,6 @@ patMarkers <- pm$PatternMarkers
 
 lapply(patMarkers, length)
 
-#pattern Marker ranks
-patRanks <- pm$PatternMarkerRanks
 
 #apply pattern Marker cell classifications
 pmcc <- ATACCoGAPS::patternMarkerCellClassifier(cg99Matrix)
@@ -348,8 +346,13 @@ cellClass <- plyr::mapvalues(as.factor(cellClass), from = c("0", "1", "2", "3", 
 
 ATACCoGAPS::cgapsPlot(cg99Matrix, cellClass, col2)
 
+rowColors = col2[2:8]
 
+#plot clustered by Pattern class
 ATACCoGAPS::heatmapPatternMatrix(cg99Matrix, as.factor(cellClass), cellCols = col2, rowColors = rowColors, col = viridis::magma(n=9))
+
+#plot PatternMarkers by pattern class
+ATACCoGAPS::heatmapPatternMarkers(cgaps_result = cg99Matrix, atac_data = countMatrix99, celltypes = as.factor(cellClass), numregions = 50, colColors = col, rowColors = rowColors, col = viridis::plasma(n = 2))
 
 #getting order of celltypes matched with order of pattern classifications for plotting
 cfct <- factor(colnames(countMatrix99), levels = c("K562", "TF1", "GM", "GM12878", "GM12878rep2", "BJ", "H1ESC", "HL60", "LMPP", "PB1022", "SU070", "SU353"), ordered = TRUE)

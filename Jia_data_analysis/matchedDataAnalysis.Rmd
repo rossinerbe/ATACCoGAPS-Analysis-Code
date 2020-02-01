@@ -8,7 +8,7 @@ editor_options:
 ```{r}
 atacMatrix <- readRDS("data/matchedATACMatrix.rds")
 rnaMatrix <- readRDS("data/matchedRNAMatrix.rds")
-#CoGAPS results generated ob Batch servers of the AWS cloud
+#CoGAPS results generated on the Batch servers of the AWS cloud
 atacResult <- readRDS("data/matchedATACResult.rds") #ATAC result was run to find 6 patterns, but the algorithm found an optimum solution at 7 patterns
 rnaResult <- readRDS("data/matchedRNAResult.rds") #ran for 6 patterns
 
