@@ -15,7 +15,7 @@ schepATAC[1:5, 1:5] #the first three columns contain peaks, the colnames are GSM
 countMatrix <- apply(as.matrix(schepATAC[-1, -c(1:3)]), 2, as.numeric)
 
 #getting cell names
-cellNames <- as.character(schepATAC[1, -c(1:3)])
+cellNames <- schepATAC[1, -c(1:3)]
 
 #create vector of cell types
 cellTypes <- unlist(lapply(cellNames, function(x){
@@ -250,8 +250,6 @@ ATACCoGAPS::heatmapGeneAccessibility(genePeaks = mnTFAcc$CEBPA, celltypes = cell
 ATACCoGAPS::heatmapGeneAccessibility(genePeaks = mnTFAcc$IRF1, celltypes = cellTypes99, colColors = col, col = c("white", "darkgreen"))
 
 lapply(mnTFAcc, ATACCoGAPS::foldAccessibility, cellTypes99, "Monocyte", binaryMatrix)
-
-
 ```
 
 
@@ -441,8 +439,12 @@ mean(pRPvals[3, which(BuenrostroCellTypes == "pDC")])
 pairwise.wilcox.test(projectRResults$projection[1,], BuenrostroCellTypes, p.adjust.method = "BH")
 mean(pRPvals[1, which(BuenrostroCellTypes == "MEP")])
 
-#boxplot of pattern 7 for pattern weight by cell type; helps visualize the difference in association to the pattern for monocytes
+#boxplot of patterns for pattern weight by cell type; helps visualize the difference in association to the pattern 
+
 pr <- projectRResults$projection
+p1 <- pr[1,]
+boxplot(p1 ~ as.factor(BuenrostroCellTypes), xlab = "Cell Type", ylab = "Pattern Weight")
+
 p7 <- pr[7,]
 boxplot(p7 ~ as.factor(BuenrostroCellTypes), xlab = "Cell Type", ylab = "Pattern Weight")
 ```
