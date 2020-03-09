@@ -49,7 +49,7 @@ saveRDS(peakvec, "data/SchepPeaks.rds")
 ```
 
 
-We now filter by sparsity to examine the results from different amount of filtering.
+We now filter by sparsity to examine the results from different amounts of filtering.
 ```{r}
 #perform filtering
 filtered99 <- ATACCoGAPS::dataSubsetBySparsity(countMatrix, cellTypes, peakvec, cell_cut = 0.99, peak_cut = 0.99)
@@ -163,7 +163,7 @@ pathwayTables = lapply(matchedPathways, function(x){x[4]})
 names(pathwayTables) = unlist(lapply(c(1:7), function(x) {paste("Pattern", x)}))
 pathwayTables
 
-#saving to create output table in separate file
+#saving 
 saveRDS(pathwayTables, "data/PT.rds")
 
 #comparing pathways found at different patternMarker score thresholds
