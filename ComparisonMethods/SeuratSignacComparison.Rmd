@@ -1,0 +1,220 @@
+---
+title: "SeuratSignacMatchedDataComparison"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+Load data and libraries
+```{r}
+library(Signac)
+library(Seurat)
+library(JASPAR2018)
+library(TFBSTools)
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(ggplot2)
+set.seed(1234)
+
+atacCounts = readRDS("data/matchedATACMatrix.rds")
+rnaCounts = readRDS("data/matchedRNAMatrix.rds")
+```
+
+
+Create Seurat Object
+```{r}
+ATACSeurat <- CreateSeuratObject(
+  counts = atacCounts,
+  assay = 'peaks',
+  project = 'ATAC',
+  min.cells = 1
+)
+
+#create ATAC gene activity matrix
+activity.matrix <- CreateGeneActivityMatrix(peak.matrix = atacCounts, annotation.file = "~/Fertig Lab/Seurat/Mus_musculus.GRCm38.99.chr.gtf", 
+    seq.levels = c(1:19, "X", "Y"), upstream = 2000, verbose = TRUE)
+
+#combine objects
+ATACSeurat[["ACTIVITY"]] <- CreateAssayObject(counts = activity.matrix)
+ATACSeurat$tech <- "atac"
+
+#data preprocessing
+DefaultAssay(ATACSeurat) <- "ACTIVITY"
+ATACSeurat <- FindVariableFeatures(ATACSeurat)
+ATACSeurat <- NormalizeData(ATACSeurat)
+ATACSeurat <- ScaleData(ATACSeurat)
+
+DefaultAssay(ATACSeurat) <- "peaks"
+VariableFeatures(ATACSeurat) <- names(which(Matrix::rowSums(ATACSeurat) > 100))
+ATACSeurat <- RunLSI(ATACSeurat, n = 50, scale.max = NULL)
+ATACSeurat <- RunUMAP(ATACSeurat, reduction = "lsi", dims = 1:50)
+ATACSeurat <- FindNeighbors(
+  object = ATACSeurat,
+  reduction = 'lsi',
+  dims = 2:30
+)
+ATACSeurat <- FindClusters(
+  object = ATACSeurat,
+  algorithm = 3,
+  resolution = 0.5,
+  verbose = FALSE
+)
+
+p1 <- DimPlot(ATACSeurat, label = TRUE, pt.size = 0.1) + NoLegend()
+p1
+```
+
+
+Integrating with scRNA-seq data
+```{r}
+#convert ENSMBL gene ids to gene symbols for RNA-seq data
+symbols = readRDS("data/ensemblIDToSymbol.rds")
+nosymbol = setdiff(rownames(rnaCounts), symbols[,2])
+rminds = c()
+for(i in 1:length(nosymbol)){
+  ind = which(rownames(rnaCounts) == nosymbol[i])
+  rminds = c(rminds, ind)
+}
+
+rnaCounts2 = rnaCounts
+
+
+for(i in 1:nrow(rnaCounts2)) {
+  ind = which(symbols$ensembl_gene_id == rownames(rnaCounts2)[i])
+  if(length(ind) == 1){
+  rownames(rnaCounts2)[i] = symbols$mgi_symbol[ind]
+  }
+}
+
+RNASeurat <- CreateSeuratObject(
+  counts = rnaCounts2,
+  assay = 'RNA',
+  project = 'RNA',
+  min.cells = 3,
+  min.features = 200
+)
+
+#RNA data preprocessing
+RNASeurat <- NormalizeData(RNASeurat)
+RNASeurat <- FindVariableFeatures(RNASeurat, selection.method = "vst", nfeatures = 2000)
+all.genes <- rownames(RNASeurat)
+RNASeurat <- ScaleData(RNASeurat, features = all.genes)
+RNASeurat <- RunPCA(RNASeurat, features = VariableFeatures(object = RNASeurat))
+RNASeurat <- JackStraw(RNASeurat, num.replicate = 100)
+RNASeurat <- ScoreJackStraw(RNASeurat, dims = 1:20)
+ElbowPlot(RNASeurat)
+RNASeurat <- FindNeighbors(RNASeurat, dims = 1:9)
+RNASeurat <- FindClusters(RNASeurat, resolution = 0.5)
+
+
+#combine data sets
+transfer.anchors <- FindTransferAnchors(
+  reference = RNASeurat,
+  query = ATACSeurat,
+  features = VariableFeatures(object = RNASeurat), 
+  reference.assay = "RNA", query.assay = "ACTIVITY", reduction = "cca")
+
+celltype.predictions <- TransferData(anchorset = transfer.anchors, refdata = colnames(rnaCounts), 
+    weight.reduction = ATACSeurat[["lsi"]])
+ATACSeurat <- AddMetaData(ATACSeurat, metadata = celltype.predictions)
+
+hist(ATACSeurat$prediction.score.max)
+abline(v = 0.5, col = "red")
+
+RNASeurat$celltype = colnames(rnaCounts)
+
+p1 <- DimPlot(ATACSeurat, group.by = "predicted.id", label = TRUE, repel = TRUE) + ggtitle("scATAC-seq cells") + 
+    NoLegend() + scale_colour_hue(drop = FALSE)
+p2 <- DimPlot(RNASeurat, group.by = 'celltype', label = TRUE, repel = TRUE) + ggtitle("scRNA-seq cells") + 
+    NoLegend()
+p1 + p2
+```
+
+
+
+Motif analysis
+```{r}
+pfm <- getMatrixSet(
+  x = JASPAR2018,
+  opts = list(species = 9606, all_versions = FALSE)
+)
+
+# Scan the DNA sequence of each peak for the presence of each motif
+motif.matrix <- CreateMotifMatrix(
+  features = StringToGRanges(rownames(ATACSeurat), sep = c(":", "-")),
+  pwm = pfm,
+  genome = 'mm10',
+  sep = c("-", "-"),
+  use.counts = FALSE
+)
+
+# Create a new Mofif object to store the results
+motif <- CreateMotifObject(
+  data = motif.matrix,
+  pwm = pfm
+)
+
+# Add the Motif object to the assay
+ATACSeurat[['peaks']] <- AddMotifObject(
+  object = ATACSeurat[['peaks']],
+  motif.object = motif
+)
+
+ATACSeurat <- RegionStats(
+  object = ATACSeurat,
+  genome = BSgenome.Mmusculus.UCSC.mm10,
+  sep = c("-", "-")
+)
+
+
+
+da_peaks <- FindMarkers(
+  object = ATACSeurat,
+  ident.1 = '0',
+  ident.2 = '1',
+  only.pos = TRUE,
+  test.use = 'LR',
+  latent.vars = 'nCount_peaks'
+)
+
+# Test the differentially accessible peaks for overrepresented motifs
+enriched.motifs1 <- FindMotifs(
+  object = ATACSeurat,
+  features = head(rownames(da_peaks), 1000)
+)
+
+head(enriched.motifs1, n = 10)
+
+MotifPlot(
+  object = ATACSeurat,
+  motifs = head(rownames(enriched.motifs1))
+)
+
+
+#loop through all cluster comparisons
+for(i in 0:4) {
+  for(j in 0:4) {
+    if(i == j){
+      next
+    }
+    peaks2 <- FindMarkers(
+  object = ATACSeurat,
+  ident.1 = as.character(i),
+  ident.2 = as.character(j),
+  only.pos = TRUE,
+  test.use = 'LR',
+  latent.vars = 'nCount_peaks'
+)
+
+enriched.motifs2 <- FindMotifs(
+  object = ATACSeurat,
+  features = head(rownames(peaks2), 1000)
+)
+
+print(head(enriched.motifs2, n = 10))
+  }
+}
+
+```
+
+
+

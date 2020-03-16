@@ -155,7 +155,7 @@ dPathways <- msigdbr::msigdbr(species = "Homo sapiens", category ="H") %>% dplyr
 #save current pathway set for reproducibility
 saveRDS(dPathways, "data/msigdbrHallmarkPathways10_2019.rds")
 
-#determine gene overlap between pathways and mathced genes
+#determine gene overlap between pathways and matched genes
 matchedPathways = ATACCoGAPS::pathwayMatch(matchedGenes, dPathways, p_threshold = 0.001)
 
 #get summary table of pathways
@@ -368,9 +368,9 @@ ATACCoGAPS::heatmapPatternMatrix(cg99Matrix, sortClasses$cellType, cellCols = co
 #plot individual patterns
 ATACCoGAPS::cgapsPlot(cg99Matrix, cfct2, col)
 
-#pattern 7 with LMPP and AML included
+#pattern 7 with HL60, LMPP and AML included
 pat7class <- rep(0, length(cellTypes))
-pat7class[c(which(cellTypes == "PB1022"), which(cellTypes == "LMPP"), which(cellTypes == "SU070"), which(cellTypes == "SU353"))] <- 1
+pat7class[c(which(cellTypes == "PB1022"), which(cellTypes == "LMPP"), which(cellTypes == "SU070"), which(cellTypes == "SU353"), which(cellTypes == "HL60"))] <- 1
 pat7roc <- pROC::roc(pat7class, pMatrix[,7])
 pROC::auc(pat7roc)
 

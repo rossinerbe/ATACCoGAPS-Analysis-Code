@@ -1,0 +1,127 @@
+---
+title: "GREAT + ATACCoGAPS Comparison"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+Load Data
+```{r}
+library(ATACCoGAPS)
+data("schepCogapsResult")
+data("schepGranges")
+```
+
+
+Run GREAT
+```{r}
+#get PatternMarker regions
+  patMarkers = CoGAPS::patternMarkers(schepCogapsResult)
+ peaks = patMarkers$PatternMarkers
+  nPeaks = lapply(peaks, length)
+  PMRanks = patMarkers$PatternMarkerRanks
+  regionPatList = vector(mode = "list", length = ncol(PMRanks))
+  for(i in seq(ncol(PMRanks))) {
+    topPeaksPat = which(PMRanks[,i] %in% seq(nPeaks[[i]]))
+    regionPatList[[i]] = topPeaksPat
+  }
+  
+  #print number of peaks used based on patternMarker score threshold
+  numPeaks = unlist(lapply(regionPatList, length))
+  names(numPeaks) = lapply(seq(length(regionPatList)),
+                           function(x) {paste("Pattern", x)})
+  print("Number of peaks used for each pattern:", quote = FALSE)
+  print(numPeaks)
+  
+  #call GREAT and get associated genes based on accessibility peaks from cogaps
+  geneList = vector("list", length(regionPatList))
+  for(i in seq(length(regionPatList))) {
+    patRanges = schepGranges[regionPatList[[i]]]
+    
+    greatJob = rGREAT::submitGreatJob(gr = patRanges, species = "hg19",
+                                      request_interval = 1)
+    tbl = rGREAT::getEnrichmentTables(greatJob, category = "Genes")
+    
+    geneList[[i]] = tbl
+  }
+
+#find significant genes for each pattern
+geneList2 = lapply(geneList, function(x) {x[[1]]$name[which(x[[1]]$Binom_Adjp_BH < 0.01)]})
+
+#geneOverlap analysis
+paths = function(patGenes, pathways, pval_cut, pAdjustMethod) {
+  
+  #test for pathway overlap with newGeneOverlap function from GeneOverlap
+  #package
+  testList = vector(mode = "list", length = length(pathways))
+  for(i in seq_along(pathways)) {
+    tmpoverlap = GeneOverlap::newGeneOverlap(patGenes, unlist(pathways[i]))
+    tmptest = GeneOverlap::testGeneOverlap(tmpoverlap)
+    testList[i] = tmptest
+  }
+  
+  #get p-values and threshold returned results
+  l = lapply(testList, GeneOverlap::getPval)
+  pvals =unlist(l)
+  pvals = p.adjust(pvals, pAdjustMethod)
+  inds = which(pvals < pval_cut)
+  gene_ov_objs = testList[inds]
+  paths = pathways[inds]
+  nms = names(paths)
+  if(length(gene_ov_objs) > 0) {
+    sigpvals = unlist(lapply(gene_ov_objs, GeneOverlap::getPval))
+    df = data.frame(pathway = nms, PValue = sigpvals)
+    df = df[order(df$PValue),]
+  }
+  else{df = NULL}
+  return(list(gene_overlaps = gene_ov_objs, matched_pathways = paths,
+              pathway_names = nms, summaryTable = df))
+}
+
+#download hallamrk pathways from msigDB
+library(dplyr)
+hPathways <- msigdbr::msigdbr(species = "Homo sapiens", category ="H") %>% dplyr::select(gs_name, gene_symbol) %>% as.data.frame()
+
+#get pathway names
+  hPathways[,1] = as.factor(hPathways[,1])
+  pathwayNames = names(summary(hPathways[,1]))
+  
+  #convert downloaded data frame to list for use with GeneOverlap package
+  pathgene_list = vector(mode = "list", length = length(pathwayNames))
+  for(i in seq_along(pathwayNames)){
+    tmpgene_list = hPathways[which(hPathways[,1]==pathwayNames[i]), 2]
+    pathgene_list[[i]] = tmpgene_list
+  }
+  names(pathgene_list) = pathwayNames
+
+#call pathway matching function
+pathResults = lapply(geneList2, paths, pathways = pathgene_list, pval_cut = 0.001, pAdjustMethod = "BH")
+
+#print results
+pathwayTables = lapply(pathResults, function(x){x[4]})
+names(pathwayTables) = unlist(lapply(c(1:7), function(x) {paste("Pattern", x)}))
+pathwayTables
+
+#save results
+saveRDS(pathwayTables, "data/GREATPathwayResults.rds")
+saveRDS(geneList, "data/GREATGenes.rds")
+```
+
+
+Compare to ATACCoGAPS
+```{r}
+library(Homo.sapiens)
+matchedGenes <- ATACCoGAPS::genePatternMatch(cogapsResult = schepCogapsResult, generanges = schepGranges, genome = Homo.sapiens)
+
+
+matchedPathways = ATACCoGAPS::pathwayMatch(matchedGenes, hPathways, p_threshold = 0.001)
+
+#get summary table of pathways
+pathwayTables = lapply(matchedPathways, function(x){x[4]})
+names(pathwayTables) = unlist(lapply(c(1:7), function(x) {paste("Pattern", x)}))
+pathwayTables
+
+
+```
+
+For the hallmark pathways used in this paper, GREAT and our method give highly similar results.
